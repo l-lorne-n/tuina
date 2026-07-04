@@ -1,0 +1,19 @@
+# Local/private runtime state
+data/
+doc_patient/
+history/
+.agents/
+
+# Local secrets
+tecent_api_key.txt
+tencent_api_key.txt
+.env
+
+# Python/runtime cache
+__pycache__/
+*.py[cod]
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak

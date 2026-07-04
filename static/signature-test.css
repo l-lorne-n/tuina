@@ -1,0 +1,65 @@
+.signature-test-page .signature-pad-shell {
+  width: min(1500px, calc(100vw - 28px));
+}
+
+.test-warning {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #d9b36a;
+  border-radius: 8px;
+  padding: 10px;
+  color: #6c4700;
+  background: #fff7e6;
+}
+
+.test-warning strong {
+  font-size: 15px;
+}
+
+.test-warning span {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.test-signature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.test-signature-card {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d8e0e5;
+  border-radius: 8px;
+  padding: 8px;
+  color: #26333f;
+  background: #fff;
+  text-decoration: none;
+}
+
+.test-signature-card:hover {
+  border-color: #9cafb9;
+}
+
+.test-signature-card img {
+  width: 100%;
+  height: 110px;
+  object-fit: contain;
+  border: 1px solid #e1e7eb;
+  background: #fff;
+}
+
+.test-signature-card span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #52616c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+body.signing-fullscreen.signature-test-page .latest-save {
+  display: none;
+}

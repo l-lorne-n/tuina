@@ -1,0 +1,112 @@
+.signature-shell {
+  width: min(1440px, calc(100vw - 28px));
+}
+
+.link-button {
+  min-height: 36px;
+  border: 1px solid #b8c3cb;
+  border-radius: 6px;
+  padding: 0 12px;
+  color: #26333f;
+  background: #fff;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  font-weight: 650;
+}
+
+.review-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 160px;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.signature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.signature-card {
+  border: 1px solid #d4dde3;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.signature-card.missing {
+  border-color: #e0b45c;
+}
+
+.signature-meta {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e7ecef;
+}
+
+.signature-order {
+  color: #65737e;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.signature-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #1f2a33;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.signature-status {
+  border-radius: 12px;
+  padding: 3px 8px;
+  background: #eef2f4;
+  color: #5e6c76;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.signature-status.completed {
+  background: #e6f5ed;
+  color: #11623f;
+}
+
+.signature-image-wrap {
+  height: 112px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: #f7f9fa;
+}
+
+.signature-image-wrap img {
+  max-width: 100%;
+  max-height: 96px;
+  border: 1px solid #d8e0e5;
+  background: #fff;
+}
+
+.signature-missing-text {
+  color: #8a4f08;
+  font-weight: 700;
+}
+
+.signature-note {
+  min-height: 32px;
+  padding: 8px 12px;
+  color: #63717c;
+  font-size: 12px;
+}
+
+@media (max-width: 700px) {
+  .review-toolbar {
+    grid-template-columns: 1fr;
+  }
+}

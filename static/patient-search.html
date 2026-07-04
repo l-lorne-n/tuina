@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>患者查找</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/signature-pages.css" />
+  </head>
+  <body>
+    <main class="app-shell search-shell">
+      <header class="topbar">
+        <div>
+          <h1>患者查找</h1>
+          <p id="searchSummary">正在读取患者卡片</p>
+        </div>
+        <nav class="page-links" aria-label="页面导航">
+          <a class="button-link" href="/">录入页</a>
+          <a class="button-link" href="/signature-review.html">签名核对</a>
+          <a class="button-link" href="/signature-pad.html">电子签名</a>
+        </nav>
+      </header>
+
+      <section class="page-toolbar">
+        <input id="patientSearchInput" type="search" placeholder="姓名、电话或序号" autofocus />
+        <select id="patientSortSelect" aria-label="排序方式">
+          <option value="order">编号顺序</option>
+          <option value="pinyin">首字母顺序</option>
+        </select>
+        <div class="view-switch" aria-label="显示方式">
+          <button class="view-button active" type="button" data-view="cards">卡片视图</button>
+          <button class="view-button" type="button" data-view="signatures">签名视图</button>
+        </div>
+        <button id="clearSearchButton" type="button">清空</button>
+      </section>
+
+      <section id="patientResultGrid" class="patient-card-grid"></section>
+    </main>
+
+    <script src="/patient-search.js"></script>
+  </body>
+</html>

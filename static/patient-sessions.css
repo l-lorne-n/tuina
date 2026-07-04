@@ -1,0 +1,221 @@
+.session-shell {
+  width: min(1380px, calc(100vw - 28px));
+}
+
+.session-card {
+  border: 1px solid #d5dde2;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: #fff;
+}
+
+.patient-overview {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(5, minmax(110px, 1fr));
+  gap: 12px;
+}
+
+.patient-overview .wide {
+  grid-column: span 3;
+}
+
+.field-label {
+  color: #63717c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.field-value {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding-top: 4px;
+  color: #1f2a33;
+  font-size: 16px;
+  font-weight: 800;
+  word-break: break-word;
+}
+
+.field-value.large {
+  font-size: 24px;
+}
+
+.signature-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.signature-panel {
+  min-width: 0;
+  border: 1px solid #d8e0e5;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f8fafb;
+}
+
+.signature-panel-title {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e4eaee;
+  color: #40505c;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.signature-panel-title select {
+  width: min(220px, 55%);
+}
+
+.signature-panel-image {
+  height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: #fff;
+}
+
+.signature-panel-image img {
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid #d8e0e5;
+  background: #fff;
+}
+
+.empty-signature {
+  color: #71808a;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.balance-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(320px, 440px);
+  gap: 16px;
+  align-items: start;
+}
+
+.remaining-value {
+  margin-top: 6px;
+  color: #0f6f5b;
+  font-size: 52px;
+  line-height: 1;
+  font-weight: 900;
+}
+
+.adjust-status {
+  margin-top: 10px;
+  color: #63717c;
+  font-size: 14px;
+}
+
+.adjust-status.error {
+  color: #a12b2b;
+}
+
+.adjust-status.success {
+  color: #11623f;
+}
+
+.adjust-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.adjust-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid #dbe3e8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafb;
+}
+
+.adjust-row.increase {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 132px;
+}
+
+.adjust-row label {
+  display: grid;
+  gap: 6px;
+  color: #40505c;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.adjust-row.decrease button {
+  color: #fff;
+  border-color: #8a4f08;
+  background: #a65f08;
+}
+
+.adjust-row.decrease button:hover:not(:disabled) {
+  background: #8a4f08;
+}
+
+.adjustment-list {
+  display: grid;
+  gap: 8px;
+}
+
+.adjustment-row {
+  display: grid;
+  grid-template-columns: 96px 110px 120px 1fr 1fr 160px;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e2e8ec;
+  border-radius: 8px;
+  padding: 10px;
+  background: #fff;
+}
+
+.operation-badge {
+  min-width: 72px;
+  justify-self: start;
+  border-radius: 14px;
+  padding: 5px 10px;
+  color: #11623f;
+  background: #e6f5ed;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.operation-badge.decrease {
+  color: #8a4f08;
+  background: #fff3df;
+}
+
+.adjustment-main {
+  color: #1f2a33;
+  font-weight: 850;
+}
+
+.adjustment-muted {
+  color: #63717c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+@media (max-width: 920px) {
+  .patient-overview,
+  .signature-panel-grid,
+  .balance-card,
+  .adjust-row,
+  .adjust-row.increase,
+  .adjustment-row {
+    grid-template-columns: 1fr;
+  }
+
+  .patient-overview .wide {
+    grid-column: auto;
+  }
+}

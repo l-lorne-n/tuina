@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>目录签名核对</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/signature-review.css" />
+  </head>
+  <body>
+    <main class="app-shell signature-shell">
+      <header class="topbar">
+        <div>
+          <h1>目录签名核对</h1>
+          <p id="summaryText">正在读取签名绑定</p>
+        </div>
+        <div class="nav-buttons">
+          <a class="link-button" href="/">录入页</a>
+          <a class="link-button" href="/patient-search.html">患者查找</a>
+          <a class="link-button" href="/signature-pad.html">电子签名</a>
+        </div>
+      </header>
+
+      <section class="review-toolbar">
+        <input id="signatureSearchInput" type="search" placeholder="搜索姓名或序号" />
+        <select id="filterSelect">
+          <option value="all">全部</option>
+          <option value="missing">只看缺图</option>
+          <option value="completed">只看已录</option>
+          <option value="pending">只看未录</option>
+        </select>
+      </section>
+
+      <section id="signatureGrid" class="signature-grid"></section>
+    </main>
+
+    <script src="/signature-review.js"></script>
+  </body>
+</html>

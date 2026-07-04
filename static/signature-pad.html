@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>电子签名实验页</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/signature-pad.css" />
+  </head>
+  <body>
+    <main class="app-shell signature-pad-shell">
+      <header class="topbar">
+        <div>
+          <h1>电子签名实验页</h1>
+          <p id="padSummary">正在读取患者名单</p>
+        </div>
+        <nav class="page-links" aria-label="页面导航">
+          <a class="button-link" href="/signature-test.html">安全测试</a>
+          <a class="button-link" href="/">录入页</a>
+          <a class="button-link" href="/patient-search.html">患者查找</a>
+          <a class="button-link" href="/signature-review.html">签名核对</a>
+        </nav>
+      </header>
+
+      <section class="signature-pad-layout">
+        <aside class="signature-controls">
+          <label>
+            <span>搜索患者</span>
+            <input id="patientFilterInput" type="search" placeholder="姓名 / 电话 / 序号" />
+          </label>
+
+          <label>
+            <span>选择患者</span>
+            <select id="patientSelect"></select>
+          </label>
+
+          <label>
+            <span>签名类型</span>
+            <select id="signatureKindSelect">
+              <option value="visit">推拿签字 / 家长签字</option>
+              <option value="case">病历签名 / 新患者签名</option>
+              <option value="directory">目录签名</option>
+            </select>
+          </label>
+
+          <label>
+            <span>签字人</span>
+            <input id="signerNameInput" placeholder="可不填" />
+          </label>
+
+          <label>
+            <span>备注</span>
+            <input id="signatureNoteInput" placeholder="可不填" />
+          </label>
+
+          <div class="signature-actions">
+            <button id="clearButton" type="button">清空</button>
+            <button id="undoButton" type="button">撤销一笔</button>
+            <button id="saveSignatureButton" class="primary" type="button">保存签名</button>
+            <button id="fullScreenButton" type="button">全屏签名</button>
+          </div>
+
+          <div class="signature-device-state">
+            <div>
+              <span>输入</span>
+              <strong id="pointerTypeText">未开始</strong>
+            </div>
+            <div>
+              <span>压感</span>
+              <strong id="pressureText">-</strong>
+            </div>
+          </div>
+
+          <div id="saveStatus" class="save-status">等待签名</div>
+        </aside>
+
+        <section class="signature-workspace">
+          <div class="signature-canvas-head">
+            <div>
+              <h2 id="activePatientName">未选择患者</h2>
+              <p id="activePatientMeta">选择患者后开始签名</p>
+            </div>
+            <a id="patientCardLink" class="text-link" href="/patient-search.html">打开患者卡片</a>
+          </div>
+
+          <div class="canvas-frame">
+            <canvas id="signatureCanvas" aria-label="电子签名画布"></canvas>
+          </div>
+
+          <section class="existing-signatures">
+            <div class="section-head">
+              <h2>当前已绑定签名</h2>
+            </div>
+            <div id="existingSignatureGrid" class="signature-preview-grid"></div>
+          </section>
+
+          <section class="latest-save">
+            <div class="section-head">
+              <h2>刚保存的签名</h2>
+            </div>
+            <div class="latest-save-body">
+              <div class="latest-save-image">
+                <img id="latestSignatureImage" alt="" hidden />
+                <span id="latestSignatureEmpty">还没有保存新的电子签名</span>
+              </div>
+              <div>
+                <div id="latestSignatureInfo" class="latest-signature-info">-</div>
+                <a id="latestSignatureLink" class="text-link" href="#" target="_blank" rel="noreferrer" hidden>打开图片</a>
+              </div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <script src="/signature-pad.js"></script>
+  </body>
+</html>

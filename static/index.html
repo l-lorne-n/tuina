@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>推拿卡片录入</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>推拿卡片录入</h1>
+          <p id="configText">正在读取配置</p>
+        </div>
+        <div class="topbar-side">
+          <div class="summary-strip">
+            <span id="totalText">0 人</span>
+            <span id="doneText">0 已录</span>
+            <span id="reviewText">0 复核</span>
+          </div>
+          <nav class="page-links" aria-label="页面导航">
+            <a class="button-link" href="/patient-search.html">患者查找</a>
+            <a class="button-link" href="/signature-review.html">签名核对</a>
+            <a class="button-link" href="/signature-pad.html">电子签名</a>
+            <a class="button-link" href="/signature-test.html">签名测试</a>
+          </nav>
+        </div>
+      </header>
+
+      <section class="layout">
+        <aside class="queue-panel">
+          <div class="queue-head">
+            <input id="searchInput" type="search" placeholder="搜索姓名或电话" />
+            <button id="newPatientButton" type="button">新建卡片</button>
+            <button id="exportButton" type="button">导出</button>
+          </div>
+          <div id="patientList" class="patient-list"></div>
+        </aside>
+
+        <section class="entry-panel">
+          <div class="patient-title">
+            <div>
+              <span id="orderText" class="muted">未选择</span>
+              <input id="nameInput" class="name-input" placeholder="姓名" />
+            </div>
+            <div class="nav-buttons">
+              <button id="prevButton" type="button">上一位</button>
+              <button id="nextButton" type="button">下一位</button>
+            </div>
+          </div>
+
+          <div class="voice-panel">
+            <div class="meter-wrap" aria-label="录音音量">
+              <div class="meter-track"><div id="levelBar" class="meter-level"></div></div>
+              <span id="timerText">00:00</span>
+            </div>
+            <div class="record-controls">
+              <button id="startButton" class="primary" type="button">开始录音</button>
+              <button id="stopButton" type="button" disabled>停止并识别</button>
+              <button id="parseButton" type="button">解析文本</button>
+            </div>
+            <div id="statusText" class="status-line">待录音</div>
+            <textarea id="rawTranscriptInput" spellcheck="false" placeholder="识别文本会放在这里，也可以手动粘贴或修改后再解析。"></textarea>
+          </div>
+
+          <form id="patientForm" class="form-grid">
+            <label>
+              <span>性别</span>
+              <select id="genderInput">
+                <option value=""></option>
+                <option value="男">男</option>
+                <option value="女">女</option>
+              </select>
+            </label>
+            <label>
+              <span>年龄</span>
+              <input id="ageInput" inputmode="decimal" />
+            </label>
+            <label>
+              <span>联系电话</span>
+              <input id="phoneInput" inputmode="tel" />
+            </label>
+            <label>
+              <span>体重</span>
+              <input id="weightInput" inputmode="decimal" />
+            </label>
+            <label>
+              <span>身高</span>
+              <input id="heightInput" inputmode="decimal" />
+            </label>
+            <label>
+              <span>剩余次数</span>
+              <input id="remainingInput" inputmode="numeric" />
+            </label>
+            <label class="wide">
+              <span>地址</span>
+              <input id="addressInput" />
+            </label>
+            <label class="wide">
+              <span>备注</span>
+              <input id="notesInput" />
+            </label>
+          </form>
+
+          <section class="signature-preview-section">
+            <div class="section-head">
+              <h2>签名图预览</h2>
+              <div class="inline-links">
+                <a id="signaturePadLink" class="text-link" href="/signature-pad.html">电子签名</a>
+                <a class="text-link" href="/signature-review.html">核对切图</a>
+              </div>
+            </div>
+            <div id="entrySignaturePreview" class="signature-preview-grid"></div>
+          </section>
+
+          <section class="recharge-section">
+            <div class="section-head">
+              <h2>充值记录</h2>
+              <button id="addRechargeButton" type="button">新增充值</button>
+            </div>
+            <div id="rechargeRows" class="recharge-rows"></div>
+          </section>
+
+          <div class="save-bar">
+            <button id="reviewButton" type="button">标记复核并下一个</button>
+            <button id="saveButton" type="button">仅保存</button>
+            <button id="saveNextButton" class="primary" type="button">保存并下一个</button>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <template id="rechargeTemplate">
+      <div class="recharge-row">
+        <input class="recharge-date" placeholder="充值日期" />
+        <input class="recharge-amount" inputmode="numeric" placeholder="金额" />
+        <input class="recharge-sessions" inputmode="numeric" placeholder="次数" />
+        <input class="recharge-raw" placeholder="原文" />
+        <button class="remove-recharge" type="button" aria-label="删除充值">删除</button>
+      </div>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

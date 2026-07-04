@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>患者次数管理</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/patient-sessions.css" />
+  </head>
+  <body>
+    <main class="app-shell session-shell">
+      <header class="topbar">
+        <div>
+          <h1>患者次数管理</h1>
+          <p id="pageSummary">正在读取患者记录</p>
+        </div>
+        <nav class="page-links" aria-label="页面导航">
+          <a class="button-link" href="/patient-search.html">患者查找</a>
+          <a id="fullRecordLink" class="button-link" href="/">完整记录</a>
+          <a id="directSignLink" class="button-link" href="/signature-pad.html">电子签名</a>
+        </nav>
+      </header>
+
+      <section class="session-card patient-overview">
+        <div>
+          <div class="field-label">姓名</div>
+          <div id="nameValue" class="field-value large">-</div>
+        </div>
+        <div>
+          <div class="field-label">性别</div>
+          <div id="genderValue" class="field-value">-</div>
+        </div>
+        <div>
+          <div class="field-label">年龄</div>
+          <div id="ageValue" class="field-value">-</div>
+        </div>
+        <div>
+          <div class="field-label">电话</div>
+          <div id="phoneValue" class="field-value">-</div>
+        </div>
+        <div>
+          <div class="field-label">体重</div>
+          <div id="weightValue" class="field-value">-</div>
+        </div>
+        <div>
+          <div class="field-label">身高</div>
+          <div id="heightValue" class="field-value">-</div>
+        </div>
+        <div class="wide">
+          <div class="field-label">地址</div>
+          <div id="addressValue" class="field-value">-</div>
+        </div>
+        <div class="wide">
+          <div class="field-label">备注</div>
+          <div id="notesValue" class="field-value">-</div>
+        </div>
+      </section>
+
+      <section class="session-card">
+        <div class="section-head">
+          <h2>签字核对</h2>
+        </div>
+        <div class="signature-panel-grid">
+          <div class="signature-panel">
+            <div class="signature-panel-title">目录签名</div>
+            <div id="directorySignatureBox" class="signature-panel-image"></div>
+          </div>
+          <div class="signature-panel">
+            <div class="signature-panel-title">病历签名</div>
+            <div id="caseSignatureBox" class="signature-panel-image"></div>
+          </div>
+          <div class="signature-panel visit-signature-panel">
+            <div class="signature-panel-title">
+              <span>推拿签字</span>
+              <select id="visitSignatureSelect"></select>
+            </div>
+            <div id="visitSignatureBox" class="signature-panel-image"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="session-card balance-card">
+        <div>
+          <div class="field-label">目前剩余次数</div>
+          <div id="remainingValue" class="remaining-value">-</div>
+          <p id="adjustStatus" class="adjust-status">剩余次数不能直接修改，请通过右侧按钮增减。</p>
+        </div>
+        <div class="adjust-controls">
+          <div class="adjust-row increase">
+            <label>
+              <span>增加次数</span>
+              <input id="increaseInput" type="number" min="1" step="1" value="10" />
+            </label>
+            <label>
+              <span>充值金额（元）</span>
+              <input id="increaseAmountInput" type="number" min="0" step="1" value="900" />
+            </label>
+            <button id="increaseButton" class="primary" type="button">增加并签名</button>
+          </div>
+          <div class="adjust-row decrease">
+            <label>
+              <span>减少次数</span>
+              <input id="decreaseInput" type="number" min="1" step="1" value="1" />
+            </label>
+            <button id="decreaseButton" type="button">减少并签名</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="session-card">
+        <div class="section-head">
+          <h2>次数流水</h2>
+        </div>
+        <div id="adjustmentList" class="adjustment-list"></div>
+      </section>
+
+      <section class="session-card">
+        <div class="section-head">
+          <h2>原录入充值记录</h2>
+        </div>
+        <div id="originalRechargeList" class="adjustment-list"></div>
+      </section>
+    </main>
+
+    <script src="/patient-sessions.js"></script>
+  </body>
+</html>
