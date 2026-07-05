@@ -96,7 +96,7 @@
 
 .balance-card {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(320px, 440px);
+  grid-template-columns: minmax(180px, 1fr) minmax(600px, 700px);
   gap: 16px;
   align-items: start;
 }
@@ -140,7 +140,11 @@
 }
 
 .adjust-row.increase {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 132px;
+  grid-template-columns: minmax(90px, 1fr) minmax(110px, 1fr) 150px 150px;
+}
+
+.adjust-row.decrease {
+  grid-template-columns: 110px minmax(210px, 1fr) 150px 150px;
 }
 
 .adjust-row label {
@@ -151,13 +155,75 @@
   font-weight: 800;
 }
 
-.adjust-row.decrease button {
+.therapist-choice-field {
+  display: grid;
+  gap: 6px;
+  color: #40505c;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.therapist-choice-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.therapist-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 1px solid #b9c8d2;
+  border-radius: 8px;
+  padding: 0 10px;
+  background: #fff;
+  color: #0a2438;
+  cursor: pointer;
+  user-select: none;
+}
+
+.therapist-choice input {
+  position: relative;
+  flex: 0 0 18px;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid #91a4b1;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.therapist-choice input:checked {
+  border-color: #0f806c;
+  background: #0f806c;
+}
+
+.therapist-choice input:checked::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.therapist-choice input:checked + span {
+  color: #0f806c;
+}
+
+.adjust-row.decrease #decreaseButton {
   color: #fff;
   border-color: #8a4f08;
   background: #a65f08;
 }
 
-.adjust-row.decrease button:hover:not(:disabled) {
+.adjust-row.decrease #decreaseButton:hover:not(:disabled) {
   background: #8a4f08;
 }
 
@@ -168,7 +234,7 @@
 
 .adjustment-row {
   display: grid;
-  grid-template-columns: 96px 110px 120px 1fr 1fr 160px;
+  grid-template-columns: 96px 100px 110px 96px 120px 120px minmax(160px, 1fr) 150px;
   gap: 10px;
   align-items: center;
   border: 1px solid #e2e8ec;
@@ -205,12 +271,60 @@
   font-weight: 700;
 }
 
+.signature-panel-meta {
+  margin-top: 6px;
+  color: #63717c;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.flow-signature-empty {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  color: #63717c;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.flow-signature-empty strong {
+  color: #8a4f08;
+  font-size: 18px;
+}
+
+.signature-status {
+  display: inline-block;
+  margin-right: 8px;
+  border-radius: 12px;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.signature-status.signed {
+  color: #11623f;
+  background: #e6f5ed;
+}
+
+.signature-status.pending {
+  color: #8a4f08;
+  background: #fff3df;
+}
+
+.button-link.compact {
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
 @media (max-width: 920px) {
   .patient-overview,
   .signature-panel-grid,
   .balance-card,
   .adjust-row,
   .adjust-row.increase,
+  .adjust-row.decrease,
   .adjustment-row {
     grid-template-columns: 1fr;
   }

@@ -48,6 +48,7 @@ MAX_AUDIO_BYTES = 5 * 1024 * 1024
 MAX_AUDIO_SECONDS = 60.5
 MAX_SIGNATURE_IMAGE_BYTES = 5 * 1024 * 1024
 DEFAULT_SESSION_PRICE = 90
+THERAPISTS = ("王师傅", "杨师傅")
 
 NUMBER_TOKEN = r"[0-9]+(?:\.[0-9]+)?|[零〇一二两三四五六七八九十百千万幺点]+"
 NUM = f"(?:{NUMBER_TOKEN})"
@@ -199,8 +200,14 @@ def init_database() -> None:
                 operation TEXT NOT NULL,
                 sessions INTEGER NOT NULL,
                 amount REAL,
+                therapist TEXT,
                 before_sessions INTEGER,
                 after_sessions INTEGER NOT NULL,
+                signature_status TEXT,
+                signature_url TEXT,
+                signature_saved_at TEXT,
+                signature_signer TEXT,
+                signature_note TEXT,
                 occurred_at TEXT NOT NULL,
                 note TEXT,
                 created_at TEXT NOT NULL,
@@ -213,7 +220,11 @@ def init_database() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_patients_status ON patients(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recharges_patient ON recharges(patient_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_recharges_date ON recharges(recharge_date)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_session_adjustments_patient ON session_adjustments(patient_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_adjustments_occurred ON session_adjustments(occurred_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_adjustments_therapist ON session_adjustments(therapist)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_session_adjustments_signature_status ON session_adjustments(signature_status)")
         seed_patients_from_excel(conn)
         conn.commit()
 
@@ -279,6 +290,18 @@ def ensure_session_adjustment_columns(conn: sqlite3.Connection) -> None:
     }
     if "amount" not in columns:
         conn.execute("ALTER TABLE session_adjustments ADD COLUMN amount REAL")
+    if "therapist" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN therapist TEXT")
+    if "signature_status" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN signature_status TEXT")
+    if "signature_url" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN signature_url TEXT")
+    if "signature_saved_at" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN signature_saved_at TEXT")
+    if "signature_signer" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN signature_signer TEXT")
+    if "signature_note" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN signature_note TEXT")
 
 
 def row_to_patient_summary(row: sqlite3.Row) -> dict[str, Any]:
@@ -458,8 +481,14 @@ def row_to_session_adjustment(row: sqlite3.Row) -> dict[str, Any]:
         "operation": row["operation"],
         "sessions": row["sessions"],
         "amount": row["amount"],
+        "therapist": row["therapist"] or "",
         "beforeSessions": row["before_sessions"],
         "afterSessions": row["after_sessions"],
+        "signatureStatus": row["signature_status"] or "pending",
+        "signatureUrl": row["signature_url"] or "",
+        "signatureSavedAt": row["signature_saved_at"] or "",
+        "signatureSigner": row["signature_signer"] or "",
+        "signatureNote": row["signature_note"] or "",
         "occurredAt": row["occurred_at"],
         "note": row["note"] or "",
         "createdAt": row["created_at"],
@@ -478,6 +507,177 @@ def list_session_adjustments(patient_id: int) -> list[dict[str, Any]]:
             (patient_id,),
         ).fetchall()
     return [row_to_session_adjustment(row) for row in rows]
+
+
+def build_session_summary(query: dict[str, list[str]]) -> dict[str, Any]:
+    range_type = first_query_value(query, "range") or "day"
+    if range_type not in {"day", "month", "year"}:
+        raise ValueError("统计范围必须是 day、month 或 year")
+
+    date_value = first_query_value(query, "date")
+    if not date_value:
+        now = dt.datetime.now()
+        if range_type == "day":
+            date_value = now.strftime("%Y-%m-%d")
+        elif range_type == "month":
+            date_value = now.strftime("%Y-%m")
+        else:
+            date_value = now.strftime("%Y")
+
+    date_prefix = normalize_summary_date(range_type, date_value)
+    prefix_length = len(date_prefix)
+    patient_id = optional_int(first_query_value(query, "patientId"))
+    therapist = first_query_value(query, "therapist")
+    if therapist and therapist not in THERAPISTS:
+        raise ValueError("师傅筛选无效")
+
+    adjustment_clauses = [f"substr(a.occurred_at, 1, {prefix_length}) = ?"]
+    adjustment_params: list[Any] = [date_prefix]
+    if patient_id:
+        adjustment_clauses.append("a.patient_id = ?")
+        adjustment_params.append(patient_id)
+
+    adjustment_where_sql = " AND ".join(adjustment_clauses)
+    with connect_db() as conn:
+        adjustment_rows = conn.execute(
+            f"""
+            SELECT
+                a.*,
+                p.name AS patient_name,
+                p.import_order AS patient_order
+            FROM session_adjustments a
+            JOIN patients p ON p.id = a.patient_id
+            WHERE {adjustment_where_sql}
+            ORDER BY a.occurred_at DESC, a.id DESC
+            """,
+            adjustment_params,
+        ).fetchall()
+        recharge_clauses = [f"substr(r.recharge_date, 1, {prefix_length}) = ?"]
+        recharge_params: list[Any] = [date_prefix]
+        if patient_id:
+            recharge_clauses.append("r.patient_id = ?")
+            recharge_params.append(patient_id)
+        recharge_where_sql = " AND ".join(recharge_clauses)
+        legacy_recharge_rows = conn.execute(
+            f"""
+            SELECT
+                r.*,
+                p.name AS patient_name,
+                p.import_order AS patient_order
+            FROM recharges r
+            JOIN patients p ON p.id = r.patient_id
+            WHERE {recharge_where_sql}
+            ORDER BY r.recharge_date DESC, r.id DESC
+            """,
+            recharge_params,
+        ).fetchall()
+
+    adjustment_records = [row_to_summary_adjustment(row) for row in adjustment_rows]
+    legacy_recharge_records = [row_to_legacy_recharge_summary(row) for row in legacy_recharge_rows]
+    all_increase_records = [
+        item for item in adjustment_records if item["operation"] == "increase"
+    ] + legacy_recharge_records
+    all_decrease_records = [item for item in adjustment_records if item["operation"] == "decrease"]
+    decrease_records = [
+        item for item in all_decrease_records if not therapist or item["therapist"] == therapist
+    ]
+    records = all_increase_records + decrease_records
+    records.sort(key=lambda item: (item["occurredAt"], item["id"]), reverse=True)
+    therapist_stats = []
+    stat_names = [therapist] if therapist else list(THERAPISTS)
+    for name in stat_names:
+        therapist_decreases = [
+            item
+            for item in all_decrease_records
+            if item["operation"] == "decrease" and item["therapist"] == name
+        ]
+        therapist_stats.append(
+            {
+                "therapist": name,
+                "workSessions": sum_number(item["sessions"] for item in therapist_decreases),
+                "workCount": len(therapist_decreases),
+            }
+        )
+
+    return {
+        "filters": {
+            "range": range_type,
+            "date": date_prefix,
+            "patientId": patient_id or "",
+            "therapist": therapist or "",
+        },
+        "therapists": list(THERAPISTS),
+        "summary": {
+            "recordCount": len(records),
+            "patientCount": len({item["patientId"] for item in records}),
+            "rechargeCount": len(all_increase_records),
+            "rechargeSessions": sum_number(item["sessions"] for item in all_increase_records),
+            "rechargeAmount": sum_number(item["amount"] for item in all_increase_records),
+            "massageCount": len(decrease_records),
+            "massageSessions": sum_number(item["sessions"] for item in decrease_records),
+        },
+        "therapistStats": therapist_stats,
+        "records": records,
+    }
+
+
+def first_query_value(query: dict[str, list[str]], key: str) -> str:
+    values = query.get(key) or []
+    return str(values[0]).strip() if values else ""
+
+
+def normalize_summary_date(range_type: str, value: str) -> str:
+    value = str(value or "").strip()
+    if range_type == "day":
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise ValueError("日期格式应为 YYYY-MM-DD")
+        return value
+    if range_type == "month":
+        if not re.fullmatch(r"\d{4}-\d{2}", value):
+            raise ValueError("月份格式应为 YYYY-MM")
+        return value
+    if not re.fullmatch(r"\d{4}", value):
+        raise ValueError("年份格式应为 YYYY")
+    return value
+
+
+def row_to_summary_adjustment(row: sqlite3.Row) -> dict[str, Any]:
+    item = row_to_session_adjustment(row)
+    item["patientName"] = row["patient_name"]
+    item["patientOrder"] = row["patient_order"]
+    return item
+
+
+def row_to_legacy_recharge_summary(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "patientId": row["patient_id"],
+        "patientName": row["patient_name"],
+        "patientOrder": row["patient_order"],
+        "operation": "legacy_recharge",
+        "sessions": row["sessions"],
+                "amount": row["amount"],
+                "therapist": "",
+                "beforeSessions": None,
+                "afterSessions": None,
+                "signatureStatus": "legacy",
+                "signatureUrl": "",
+                "signatureSavedAt": "",
+                "signatureSigner": "",
+                "signatureNote": "",
+                "occurredAt": row["recharge_date"] or "",
+                "note": row["raw_text"] or "original recharge record",
+                "createdAt": row["created_at"],
+    }
+
+
+def sum_number(values: Any) -> float:
+    total = 0.0
+    for value in values:
+        if value in (None, ""):
+            continue
+        total += float(value)
+    return total
 
 
 def get_signature_item(patient_id: int) -> dict[str, Any]:
@@ -541,6 +741,9 @@ def apply_session_adjustment(patient_id: int, payload: dict[str, Any]) -> dict[s
     sessions = optional_int(payload.get("sessions"))
     if sessions is None or sessions <= 0:
         raise ValueError("sessions must be a positive integer")
+    therapist = str(payload.get("therapist") or "").strip() if operation == "decrease" else ""
+    if operation == "decrease" and therapist not in THERAPISTS:
+        raise ValueError("请选择师傅")
     amount = optional_float(payload.get("amount")) if operation == "increase" else None
     if operation == "increase":
         if amount is None:
@@ -580,18 +783,20 @@ def apply_session_adjustment(patient_id: int, payload: dict[str, Any]) -> dict[s
         cursor = conn.execute(
             """
             INSERT INTO session_adjustments (
-                patient_id, operation, sessions, amount, before_sessions, after_sessions,
+                patient_id, operation, sessions, amount, therapist, before_sessions, after_sessions, signature_status,
                 occurred_at, note, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 patient_id,
                 operation,
                 sessions,
                 amount,
+                therapist,
                 before_sessions,
                 after_sessions,
+                "pending",
                 occurred_at,
                 note,
                 created_at,
@@ -607,8 +812,14 @@ def apply_session_adjustment(patient_id: int, payload: dict[str, Any]) -> dict[s
             "operation": operation,
             "sessions": sessions,
             "amount": amount,
+            "therapist": therapist,
             "beforeSessions": before_sessions,
             "afterSessions": after_sessions,
+            "signatureStatus": "pending",
+            "signatureUrl": "",
+            "signatureSavedAt": "",
+            "signatureSigner": "",
+            "signatureNote": "",
             "occurredAt": occurred_at,
             "note": note,
             "createdAt": created_at,
@@ -1121,6 +1332,7 @@ SIGNATURE_KIND_TO_FIELD = {
     "directory": "directorySignature",
     "case": "caseSignature",
     "visit": "visitSignature",
+    "flow": "flowSignature",
 }
 
 
@@ -1219,7 +1431,8 @@ def save_electronic_signature(payload: dict[str, Any]) -> dict[str, Any]:
     kind = str(payload.get("kind") or "visit").strip()
     field = SIGNATURE_KIND_TO_FIELD.get(kind)
     if not field:
-        raise ValueError("signature kind must be directory, case, or visit")
+        raise ValueError("signature kind must be directory, case, visit, or flow")
+    adjustment_id = optional_int(payload.get("adjustmentId"))
 
     image_bytes = decode_signature_png(payload)
     saved_at = now_text()
@@ -1247,6 +1460,7 @@ def save_electronic_signature(payload: dict[str, Any]) -> dict[str, Any]:
             "kind": kind,
             "field": field,
             "url": url,
+            "adjustmentId": adjustment_id or "",
             "signerName": str(payload.get("signerName") or "").strip(),
             "note": str(payload.get("note") or "").strip(),
             "savedAt": saved_at,
@@ -1255,6 +1469,16 @@ def save_electronic_signature(payload: dict[str, Any]) -> dict[str, Any]:
     del history[:-50]
     save_signature_bindings(bindings)
 
+    if adjustment_id:
+        mark_adjustment_signed(
+            patient_id=patient_id,
+            adjustment_id=adjustment_id,
+            url=url,
+            saved_at=saved_at,
+            signer_name=str(payload.get("signerName") or "").strip(),
+            note=str(payload.get("note") or "").strip(),
+        )
+
     return {
         "patientId": patient_id,
         "kind": kind,
@@ -1262,7 +1486,42 @@ def save_electronic_signature(payload: dict[str, Any]) -> dict[str, Any]:
         "url": url,
         "filePath": str(target_path),
         "savedAt": saved_at,
+        "adjustmentId": adjustment_id or "",
     }
+
+
+def mark_adjustment_signed(
+    patient_id: int,
+    adjustment_id: int,
+    url: str,
+    saved_at: str,
+    signer_name: str,
+    note: str,
+) -> None:
+    with connect_db() as conn:
+        row = conn.execute(
+            """
+            SELECT id
+            FROM session_adjustments
+            WHERE id = ? AND patient_id = ?
+            """,
+            (adjustment_id, patient_id),
+        ).fetchone()
+        if not row:
+            raise ValueError("没有找到要绑定签名的流水")
+        conn.execute(
+            """
+            UPDATE session_adjustments
+            SET signature_status = 'signed',
+                signature_url = ?,
+                signature_saved_at = ?,
+                signature_signer = ?,
+                signature_note = ?
+            WHERE id = ? AND patient_id = ?
+            """,
+            (url, saved_at, signer_name, note, adjustment_id, patient_id),
+        )
+        conn.commit()
 
 
 def save_test_signature(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1373,6 +1632,14 @@ class TuinaHandler(SimpleHTTPRequestHandler):
         if parsed_path.path == "/api/patients":
             init_database()
             json_response(self, HTTPStatus.OK, {"ok": True, "patients": list_patients()})
+            return
+        if parsed_path.path == "/api/session-summary":
+            init_database()
+            try:
+                query = urllib.parse.parse_qs(parsed_path.query, keep_blank_values=True)
+                json_response(self, HTTPStatus.OK, {"ok": True, **build_session_summary(query)})
+            except Exception as exc:
+                json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
             return
         if parsed_path.path.startswith("/api/session-page/"):
             init_database()

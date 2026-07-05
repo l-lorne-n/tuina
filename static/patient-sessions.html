@@ -17,6 +17,7 @@
         </div>
         <nav class="page-links" aria-label="页面导航">
           <a class="button-link" href="/patient-search.html">患者查找</a>
+          <a class="button-link" href="/session-summary.html">流水总结</a>
           <a id="fullRecordLink" class="button-link" href="/">完整记录</a>
           <a id="directSignLink" class="button-link" href="/signature-pad.html">电子签名</a>
         </nav>
@@ -67,8 +68,11 @@
             <div id="directorySignatureBox" class="signature-panel-image"></div>
           </div>
           <div class="signature-panel">
-            <div class="signature-panel-title">病历签名</div>
-            <div id="caseSignatureBox" class="signature-panel-image"></div>
+            <div class="signature-panel-title">
+              <span>流水签名</span>
+              <select id="flowSignatureSelect"></select>
+            </div>
+            <div id="flowSignatureBox" class="signature-panel-image"></div>
           </div>
           <div class="signature-panel visit-signature-panel">
             <div class="signature-panel-title">
@@ -97,13 +101,28 @@
               <input id="increaseAmountInput" type="number" min="0" step="1" value="900" />
             </label>
             <button id="increaseButton" class="primary" type="button">增加并签名</button>
+            <button id="increasePendingButton" type="button">增加并待签名</button>
           </div>
           <div class="adjust-row decrease">
             <label>
               <span>减少次数</span>
               <input id="decreaseInput" type="number" min="1" step="1" value="1" />
             </label>
+            <div class="therapist-choice-field" role="radiogroup" aria-label="师傅">
+              <span>师傅</span>
+              <div class="therapist-choice-list">
+                <label class="therapist-choice">
+                  <input type="radio" name="decreaseTherapist" value="王师傅" />
+                  <span>王师傅</span>
+                </label>
+                <label class="therapist-choice">
+                  <input type="radio" name="decreaseTherapist" value="杨师傅" />
+                  <span>杨师傅</span>
+                </label>
+              </div>
+            </div>
             <button id="decreaseButton" type="button">减少并签名</button>
+            <button id="decreasePendingButton" type="button">减少并待签名</button>
           </div>
         </div>
       </section>

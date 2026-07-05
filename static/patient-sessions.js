@@ -11,7 +11,8 @@ const elements = {
   addressValue: document.querySelector("#addressValue"),
   notesValue: document.querySelector("#notesValue"),
   directorySignatureBox: document.querySelector("#directorySignatureBox"),
-  caseSignatureBox: document.querySelector("#caseSignatureBox"),
+  flowSignatureSelect: document.querySelector("#flowSignatureSelect"),
+  flowSignatureBox: document.querySelector("#flowSignatureBox"),
   visitSignatureSelect: document.querySelector("#visitSignatureSelect"),
   visitSignatureBox: document.querySelector("#visitSignatureBox"),
   remainingValue: document.querySelector("#remainingValue"),
@@ -19,8 +20,11 @@ const elements = {
   increaseInput: document.querySelector("#increaseInput"),
   increaseAmountInput: document.querySelector("#increaseAmountInput"),
   decreaseInput: document.querySelector("#decreaseInput"),
+  decreaseTherapistInputs: Array.from(document.querySelectorAll('input[name="decreaseTherapist"]')),
   increaseButton: document.querySelector("#increaseButton"),
+  increasePendingButton: document.querySelector("#increasePendingButton"),
   decreaseButton: document.querySelector("#decreaseButton"),
+  decreasePendingButton: document.querySelector("#decreasePendingButton"),
   adjustmentList: document.querySelector("#adjustmentList"),
   originalRechargeList: document.querySelector("#originalRechargeList"),
 };
@@ -47,6 +51,7 @@ async function init() {
 }
 
 function bindEvents() {
+  elements.flowSignatureSelect.addEventListener("change", renderSelectedFlowSignature);
   elements.visitSignatureSelect.addEventListener("change", renderSelectedVisitSignature);
   elements.increaseInput.addEventListener("input", () => {
     if (!increaseAmountEdited) updateDefaultIncreaseAmount();
@@ -54,8 +59,10 @@ function bindEvents() {
   elements.increaseAmountInput.addEventListener("input", () => {
     increaseAmountEdited = true;
   });
-  elements.increaseButton.addEventListener("click", () => submitAdjustment("increase"));
-  elements.decreaseButton.addEventListener("click", () => submitAdjustment("decrease"));
+  elements.increaseButton.addEventListener("click", () => submitAdjustment("increase", true));
+  elements.increasePendingButton.addEventListener("click", () => submitAdjustment("increase", false));
+  elements.decreaseButton.addEventListener("click", () => submitAdjustment("decrease", true));
+  elements.decreasePendingButton.addEventListener("click", () => submitAdjustment("decrease", false));
 }
 
 async function loadPage() {
@@ -92,7 +99,7 @@ function renderPage() {
   elements.remainingValue.textContent = patient.remainingSessions ?? "-";
 
   renderSignatureBox(elements.directorySignatureBox, signature.directorySignature, "目录签名");
-  renderSignatureBox(elements.caseSignatureBox, signature.caseSignature, "病历签名");
+  renderFlowSignatureSelect();
   renderVisitSignatureSelect();
   if (!increaseAmountEdited) updateDefaultIncreaseAmount();
   renderAdjustmentList();
@@ -127,6 +134,56 @@ function renderSignatureBox(container, url, label) {
   container.innerHTML = `<a href="${imageUrl}" target="_blank" rel="noreferrer"><img src="${imageUrl}" alt="${escapeHtml(
     patient.name
   )} ${label}" /></a>`;
+}
+
+function renderFlowSignatureSelect() {
+  elements.flowSignatureSelect.innerHTML = "";
+  if (!adjustments.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "暂无流水";
+    elements.flowSignatureSelect.appendChild(option);
+    elements.flowSignatureBox.innerHTML = '<span class="empty-signature">暂无流水签名</span>';
+    return;
+  }
+
+  adjustments.forEach((item, index) => {
+    const option = document.createElement("option");
+    option.value = String(index);
+    option.textContent = `${adjustmentLabel(item)} · ${dateLabel(item.occurredAt)} · ${signatureStatusLabel(
+      item.signatureStatus
+    )}`;
+    elements.flowSignatureSelect.appendChild(option);
+  });
+  elements.flowSignatureSelect.value = "0";
+  renderSelectedFlowSignature();
+}
+
+function renderSelectedFlowSignature() {
+  const index = Number(elements.flowSignatureSelect.value || 0);
+  const item = adjustments[index];
+  if (!item) {
+    elements.flowSignatureBox.innerHTML = '<span class="empty-signature">暂无流水签名</span>';
+    return;
+  }
+  if (item.signatureUrl) {
+    const imageUrl = `${item.signatureUrl}?v=${encodeURIComponent(item.signatureSavedAt || Date.now())}`;
+    elements.flowSignatureBox.innerHTML = `
+      <a href="${imageUrl}" target="_blank" rel="noreferrer"><img src="${imageUrl}" alt="${escapeHtml(
+      patient.name
+    )} ${adjustmentLabel(item)} 流水签名" /></a>
+      <div class="signature-panel-meta">${escapeHtml(formatAdjustmentMeta(item))}</div>
+    `;
+    return;
+  }
+
+  elements.flowSignatureBox.innerHTML = `
+    <div class="flow-signature-empty">
+      <strong>待签名</strong>
+      <span>${escapeHtml(formatAdjustmentMeta(item))}</span>
+      <a class="button-link compact" href="${signAdjustmentUrl(item)}">去签名</a>
+    </div>
+  `;
 }
 
 function renderVisitSignatureSelect() {
@@ -186,6 +243,19 @@ function renderAdjustment(item) {
       <div class="adjustment-muted">${
         isIncrease ? `金额 ${escapeHtml(formatAmount(item.amount))}` : "消费扣次"
       }</div>
+      <div class="adjustment-muted">${escapeHtml(
+        isIncrease ? "充值不分师傅" : item.therapist || "未记录师傅"
+      )}</div>
+      <div class="adjustment-muted">
+        <span class="signature-status ${signatureStatusClass(item.signatureStatus)}">${signatureStatusLabel(
+    item.signatureStatus
+  )}</span>
+        ${
+          item.signatureUrl
+            ? `<a class="text-link" href="${escapeHtml(item.signatureUrl)}" target="_blank" rel="noreferrer">查看</a>`
+            : `<a class="text-link" href="${signAdjustmentUrl(item)}">去签名</a>`
+        }
+      </div>
       <div class="adjustment-muted">剩余 ${empty(item.beforeSessions)} → ${escapeHtml(
     item.afterSessions
   )}</div>
@@ -216,7 +286,7 @@ function renderOriginalRecharges() {
     .join("");
 }
 
-async function submitAdjustment(operation) {
+async function submitAdjustment(operation, shouldSign) {
   const input = operation === "increase" ? elements.increaseInput : elements.decreaseInput;
   const sessions = Number(input.value || 0);
   if (!Number.isInteger(sessions) || sessions <= 0) {
@@ -225,14 +295,21 @@ async function submitAdjustment(operation) {
   }
 
   const label = operation === "increase" ? "充值" : "消费";
+  const therapist = operation === "decrease" ? getSelectedDecreaseTherapist() : "";
+  if (operation === "decrease" && !therapist) {
+    setStatus("请选择师傅", "error");
+    return;
+  }
   const amount = operation === "increase" ? Number(elements.increaseAmountInput.value || 0) : null;
   if (operation === "increase" && (!Number.isFinite(amount) || amount < 0)) {
     setStatus("充值金额不能小于 0", "error");
     return;
   }
   const amountNote = operation === "increase" ? `，金额 ${formatAmount(amount)} 元` : "";
+  const therapistNote = operation === "decrease" ? `，师傅 ${therapist}` : "";
+  const signNote = shouldSign ? "随后会跳转到签名页。" : "本次流水会标记为待签名。";
   const confirmed = window.confirm(
-    `确认给 ${patient.name} ${label}${sessions}次${amountNote}吗？\n确认后会真实更新剩余次数、写入次数流水，并跳转到签名页。`
+    `确认给 ${patient.name} ${label}${sessions}次${amountNote}${therapistNote} 吗？\n确认后会真实更新剩余次数、写入次数流水。${signNote}`
   );
   if (!confirmed) return;
 
@@ -246,7 +323,8 @@ async function submitAdjustment(operation) {
         operation,
         sessions,
         amount,
-        note: `${label}${sessions}次${amountNote}`,
+        therapist,
+        note: `${label}${sessions}次${amountNote}${therapistNote}`,
       }),
     });
     const payload = await response.json();
@@ -255,19 +333,18 @@ async function submitAdjustment(operation) {
     patient = payload.patient;
     adjustments = payload.adjustments || [];
     elements.remainingValue.textContent = patient.remainingSessions ?? "-";
+    renderFlowSignatureSelect();
     renderAdjustmentList();
-    setStatus(`已记录${label}${sessions}次，正在跳转到签名`, "success");
+    if (operation === "decrease") clearDecreaseTherapist();
     const adjustment = payload.adjustment || {};
+    if (!shouldSign) {
+      setStatus(`已记录${label}${sessions}次，当前为待签名`, "success");
+      setButtonsDisabled(false);
+      return;
+    }
+    setStatus(`已记录${label}${sessions}次，正在跳转到签名`, "success");
     window.setTimeout(() => {
-      const returnTo = encodeURIComponent(`/patient-sessions.html?patientId=${patient.id}`);
-      const signedAmountNote =
-        operation === "increase" ? ` | 金额 ${formatAmount(adjustment.amount)}元` : "";
-      const note = encodeURIComponent(
-        `${label}${sessions}次${signedAmountNote} | 流水 #${adjustment.id || ""} | ${
-          adjustment.occurredAt || ""
-        }`
-      );
-      window.location.href = `/signature-pad.html?patientId=${patient.id}&kind=visit&note=${note}&returnTo=${returnTo}`;
+      window.location.href = signAdjustmentUrl(adjustment);
     }, 600);
   } catch (error) {
     setStatus(error.message || String(error), "error");
@@ -277,7 +354,19 @@ async function submitAdjustment(operation) {
 
 function setButtonsDisabled(disabled) {
   elements.increaseButton.disabled = disabled;
+  elements.increasePendingButton.disabled = disabled;
   elements.decreaseButton.disabled = disabled;
+  elements.decreasePendingButton.disabled = disabled;
+  for (const input of elements.decreaseTherapistInputs) input.disabled = disabled;
+}
+
+function getSelectedDecreaseTherapist() {
+  const selected = elements.decreaseTherapistInputs.find((input) => input.checked);
+  return selected ? selected.value : "";
+}
+
+function clearDecreaseTherapist() {
+  for (const input of elements.decreaseTherapistInputs) input.checked = false;
 }
 
 function updateDefaultIncreaseAmount() {
@@ -302,6 +391,38 @@ function empty(value) {
 
 function dateLabel(value) {
   return value ? String(value).slice(0, 10) : "空空";
+}
+
+function adjustmentLabel(item) {
+  const label = item.operation === "increase" ? "充值" : "消费";
+  const sign = item.operation === "increase" ? "+" : "-";
+  return `${label}${sign}${item.sessions}次`;
+}
+
+function formatAdjustmentMeta(item) {
+  const amountText =
+    item.operation === "increase" && item.amount !== null && item.amount !== undefined
+      ? `，金额 ${formatAmount(item.amount)} 元`
+      : "";
+  const therapistText = item.operation === "decrease" && item.therapist ? `，师傅 ${item.therapist}` : "";
+  const signedText = item.signatureSavedAt ? `，签于 ${item.signatureSavedAt}` : "";
+  return `流水 #${item.id} | ${item.occurredAt || "-"} | ${adjustmentLabel(
+    item
+  )}${amountText}${therapistText}${signedText}`;
+}
+
+function signAdjustmentUrl(item) {
+  const returnTo = encodeURIComponent(`/patient-sessions.html?patientId=${patient.id}`);
+  const note = encodeURIComponent(formatAdjustmentMeta(item));
+  return `/signature-pad.html?patientId=${patient.id}&kind=flow&adjustmentId=${item.id}&note=${note}&returnTo=${returnTo}`;
+}
+
+function signatureStatusLabel(status) {
+  return status === "signed" ? "已签名" : "待签名";
+}
+
+function signatureStatusClass(status) {
+  return status === "signed" ? "signed" : "pending";
 }
 
 function formatAmount(value) {

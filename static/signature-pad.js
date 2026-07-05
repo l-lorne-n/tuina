@@ -27,11 +27,12 @@ const kindLabels = {
   directory: "目录签名",
   case: "病历签名 / 新患者签名",
   visit: "推拿签字 / 家长签字",
+  flow: "流水签名 / 入账确认",
 };
 
 const slotLabels = [
   ["directorySignature", "目录签名"],
-  ["caseSignature", "病历签名"],
+  ["flowSignature", "流水签名"],
   ["visitSignature", "推拿签字"],
 ];
 
@@ -45,6 +46,7 @@ let activePointerId = null;
 let currentStroke = null;
 let strokes = [];
 let returnToUrl = "";
+let requestedAdjustmentId = 0;
 
 init();
 
@@ -56,6 +58,7 @@ async function init() {
 
   const params = new URLSearchParams(window.location.search);
   returnToUrl = safeReturnTo(params.get("returnTo") || "");
+  requestedAdjustmentId = Number(params.get("adjustmentId") || 0);
   const requestedNote = params.get("note");
   if (requestedNote) {
     elements.signatureNoteInput.value = requestedNote;
@@ -63,6 +66,9 @@ async function init() {
   const requestedKind = params.get("kind");
   if (requestedKind && kindLabels[requestedKind]) {
     elements.signatureKindSelect.value = requestedKind;
+  }
+  if (requestedAdjustmentId) {
+    elements.signatureKindSelect.value = "flow";
   }
   const requestedId = Number(params.get("patientId") || 0);
   renderPatientOptions(requestedId);
@@ -381,6 +387,7 @@ async function saveSignature() {
       body: JSON.stringify({
         patientId: selectedPatient.id,
         kind: elements.signatureKindSelect.value,
+        adjustmentId: requestedAdjustmentId || "",
         signerName: elements.signerNameInput.value.trim(),
         note: elements.signatureNoteInput.value.trim(),
         imageData,

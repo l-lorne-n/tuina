@@ -96,7 +96,6 @@ function renderPatientCard(patient) {
         <div class="patient-card-links">
           <a class="text-link" href="/?patientId=${patient.id}">完整记录</a>
           <a class="text-link" href="/patient-sessions.html?patientId=${patient.id}">增添次数</a>
-          <a class="text-link" href="/signature-pad.html?patientId=${patient.id}&kind=visit">电子签名</a>
         </div>
       </div>
       <div class="patient-card-meta">

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>流水总结</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/session-summary.css" />
+  </head>
+  <body>
+    <main class="app-shell summary-shell">
+      <header class="topbar">
+        <div>
+          <h1>流水总结</h1>
+          <p id="summaryStatus">正在读取流水</p>
+        </div>
+        <nav class="page-links" aria-label="页面导航">
+          <a class="button-link" href="/patient-search.html">患者查找</a>
+          <a class="button-link" href="/">录入页</a>
+          <a class="button-link" href="/signature-pad.html">电子签名</a>
+        </nav>
+      </header>
+
+      <section class="summary-card filter-card">
+        <label>
+          <span>统计范围</span>
+          <select id="rangeSelect">
+            <option value="day">当天</option>
+            <option value="month">当月</option>
+            <option value="year">当年</option>
+          </select>
+        </label>
+        <label>
+          <span id="dateLabel">日期</span>
+          <input id="dateInput" type="date" />
+        </label>
+        <label>
+          <span>患者</span>
+          <select id="patientSelect">
+            <option value="">全部患者</option>
+          </select>
+        </label>
+        <label>
+          <span>师傅</span>
+          <select id="therapistSelect">
+            <option value="">全部师傅</option>
+            <option value="王师傅">王师傅</option>
+            <option value="杨师傅">杨师傅</option>
+          </select>
+        </label>
+        <button id="loadSummaryButton" class="primary" type="button">刷新</button>
+      </section>
+
+      <section class="stat-grid" aria-label="汇总数据">
+        <div class="stat-card">
+          <div class="stat-label">充值金额</div>
+          <div id="rechargeAmountValue" class="stat-value">-</div>
+          <div id="rechargeDetailValue" class="stat-note">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">充值次数</div>
+          <div id="rechargeSessionsValue" class="stat-value">-</div>
+          <div id="rechargeCountValue" class="stat-note">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">按摩次数</div>
+          <div id="massageSessionsValue" class="stat-value">-</div>
+          <div id="massageCountValue" class="stat-note">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">涉及患者</div>
+          <div id="patientCountValue" class="stat-value">-</div>
+          <div id="recordCountValue" class="stat-note">-</div>
+        </div>
+      </section>
+
+      <section class="summary-card">
+        <div class="section-head">
+          <h2>师傅统计</h2>
+        </div>
+        <div id="therapistStatsTable" class="summary-table"></div>
+      </section>
+
+      <section class="summary-card">
+        <div class="section-head">
+          <h2>流水明细</h2>
+        </div>
+        <div id="recordTable" class="summary-table"></div>
+      </section>
+    </main>
+
+    <script src="/session-summary.js"></script>
+  </body>
+</html>
