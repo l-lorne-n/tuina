@@ -41,7 +41,7 @@ async function init() {
   bindEvents();
   resizeCanvas();
   await loadTestSignatures();
-  setStatus("安全测试页已打开，保存不会绑定真实患者", "success");
+  setStatus("签名测试页已打开，保存不会绑定真实患者", "success");
 }
 
 function bindEvents() {
@@ -62,7 +62,7 @@ function bindEvents() {
 function updateTitle() {
   const name = elements.testNameInput.value.trim() || "测试签名";
   elements.activePatientName.textContent = name;
-  elements.activePatientMeta.textContent = "安全测试模式，不会修改真实患者数据库";
+  elements.activePatientMeta.textContent = "签名测试模式，不会修改真实患者数据库";
 }
 
 function resizeCanvas() {

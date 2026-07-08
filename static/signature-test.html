@@ -3,22 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>电子签名安全测试页</title>
+    <title>签名测试页</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/signature-pad.css" />
     <link rel="stylesheet" href="/signature-test.css" />
   </head>
-  <body class="signature-test-page">
+  <body class="signature-test-page" data-tool-page="signature-test">
     <main class="app-shell signature-pad-shell">
       <header class="topbar">
         <div>
-          <h1>电子签名安全测试页</h1>
+          <h1>签名测试页</h1>
           <p id="padSummary">不读取真实患者，不绑定卡片，只保存到测试文件夹</p>
         </div>
         <nav class="page-links" aria-label="页面导航">
-          <a class="button-link" href="/signature-pad.html">正式签名页</a>
-          <a class="button-link" href="/">录入页</a>
           <a class="button-link" href="/patient-search.html">患者查找</a>
           <a class="button-link" href="/session-summary.html">流水总结</a>
         </nav>
@@ -27,7 +25,7 @@
       <section class="signature-pad-layout">
         <aside class="signature-controls">
           <div class="test-warning">
-            <strong>安全测试模式</strong>
+            <strong>签名测试模式</strong>
             <span>保存后只进入 electronic_test 文件夹，不会出现在任何真实患者卡片里。</span>
           </div>
 
@@ -117,5 +115,6 @@
     </main>
 
     <script src="/signature-test.js"></script>
+    <script src="/tools-nav.js"></script>
   </body>
 </html>

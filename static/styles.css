@@ -172,6 +172,113 @@ h2 {
   justify-content: flex-end;
 }
 
+.tool-dock {
+  position: fixed;
+  top: 92px;
+  right: 18px;
+  z-index: 40;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+  pointer-events: none;
+}
+
+.tool-dock-toggle,
+.tool-dock-panel {
+  pointer-events: auto;
+}
+
+.tool-dock-toggle {
+  min-width: 70px;
+  min-height: 38px;
+  border-color: #8da2af;
+  color: #0a2438;
+  background: #fff;
+  font-weight: 850;
+  box-shadow: 0 6px 18px rgba(18, 35, 46, 0.12);
+}
+
+.tool-dock-panel {
+  width: 250px;
+  max-width: calc(100vw - 32px);
+  display: none;
+  border: 1px solid #c9d5dc;
+  border-radius: 8px;
+  padding: 12px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(18, 35, 46, 0.18);
+}
+
+.tool-dock.open .tool-dock-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.tool-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e3e9ed;
+}
+
+.tool-dock-title {
+  color: #0a2438;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.tool-dock-close {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+}
+
+.tool-group {
+  display: grid;
+  gap: 7px;
+}
+
+.tool-group-title {
+  color: #63717c;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.tool-link {
+  min-height: 42px;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #d6e0e6;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #0a2438;
+  background: #f8fafb;
+  text-decoration: none;
+}
+
+.tool-link:hover {
+  border-color: #16856e;
+  background: #eef8f5;
+}
+
+.tool-link.active {
+  border-color: #16856e;
+  background: #e7f4ef;
+}
+
+.tool-link strong {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.tool-link span {
+  color: #63717c;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 .text-link {
   color: #156f5c;
   font-size: 13px;
@@ -462,6 +569,10 @@ h2 {
   text-align: center;
 }
 
+body.signing-fullscreen .tool-dock {
+  display: none;
+}
+
 @media (max-width: 920px) {
   .layout {
     grid-template-columns: 1fr;
@@ -496,6 +607,12 @@ h2 {
 
   .topbar-side {
     justify-items: start;
+  }
+
+  .tool-dock {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
   }
 
   .form-grid {

@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/patient-sessions.css" />
   </head>
-  <body>
+  <body data-tool-page="patient-sessions">
     <main class="app-shell session-shell">
       <header class="topbar">
         <div>
@@ -18,8 +18,6 @@
         <nav class="page-links" aria-label="页面导航">
           <a class="button-link" href="/patient-search.html">患者查找</a>
           <a class="button-link" href="/session-summary.html">流水总结</a>
-          <a id="fullRecordLink" class="button-link" href="/">完整记录</a>
-          <a id="directSignLink" class="button-link" href="/signature-pad.html">电子签名</a>
         </nav>
       </header>
 
@@ -143,5 +141,6 @@
     </main>
 
     <script src="/patient-sessions.js"></script>
+    <script src="/tools-nav.js"></script>
   </body>
 </html>

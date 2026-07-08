@@ -3,24 +3,21 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>电子签名实验页</title>
+    <title>电子签名页</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/signature-pad.css" />
   </head>
-  <body>
+  <body data-tool-page="signature-pad">
     <main class="app-shell signature-pad-shell">
       <header class="topbar">
         <div>
-          <h1>电子签名实验页</h1>
+          <h1>电子签名页</h1>
           <p id="padSummary">正在读取患者名单</p>
         </div>
         <nav class="page-links" aria-label="页面导航">
-          <a class="button-link" href="/signature-test.html">安全测试</a>
-          <a class="button-link" href="/">录入页</a>
           <a class="button-link" href="/patient-search.html">患者查找</a>
           <a class="button-link" href="/session-summary.html">流水总结</a>
-          <a class="button-link" href="/signature-review.html">签名核对</a>
         </nav>
       </header>
 
@@ -117,5 +114,6 @@
     </main>
 
     <script src="/signature-pad.js"></script>
+    <script src="/tools-nav.js"></script>
   </body>
 </html>

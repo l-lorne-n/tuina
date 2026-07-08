@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/signature-pages.css" />
   </head>
-  <body>
+  <body data-tool-page="patient-search">
     <main class="app-shell search-shell">
       <header class="topbar">
         <div>
@@ -16,10 +16,7 @@
           <p id="searchSummary">正在读取患者卡片</p>
         </div>
         <nav class="page-links" aria-label="页面导航">
-          <a class="button-link" href="/">录入页</a>
           <a class="button-link" href="/session-summary.html">流水总结</a>
-          <a class="button-link" href="/signature-review.html">签名核对</a>
-          <a class="button-link" href="/signature-pad.html">电子签名</a>
         </nav>
       </header>
 
@@ -40,5 +37,6 @@
     </main>
 
     <script src="/patient-search.js"></script>
+    <script src="/tools-nav.js"></script>
   </body>
 </html>

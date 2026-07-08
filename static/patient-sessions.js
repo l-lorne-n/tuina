@@ -1,7 +1,5 @@
 const elements = {
   pageSummary: document.querySelector("#pageSummary"),
-  fullRecordLink: document.querySelector("#fullRecordLink"),
-  directSignLink: document.querySelector("#directSignLink"),
   nameValue: document.querySelector("#nameValue"),
   genderValue: document.querySelector("#genderValue"),
   ageValue: document.querySelector("#ageValue"),
@@ -83,10 +81,6 @@ function renderPage() {
   elements.pageSummary.textContent = `第 ${patient.order} 位，剩余 ${
     patient.remainingSessions ?? "-"
   } 次`;
-  elements.fullRecordLink.href = `/?patientId=${patient.id}`;
-  elements.directSignLink.href = `/signature-pad.html?patientId=${patient.id}&kind=visit&returnTo=${encodeURIComponent(
-    `/patient-sessions.html?patientId=${patient.id}`
-  )}`;
 
   setText(elements.nameValue, patient.name);
   setText(elements.genderValue, patient.gender);
@@ -220,7 +214,7 @@ function renderSelectedVisitSignature() {
     <a href="${imageUrl}" target="_blank" rel="noreferrer"><img src="${imageUrl}" alt="${escapeHtml(
     patient.name
   )} 推拿签字" /></a>
-    ${meta ? `<div class="adjustment-muted">${escapeHtml(meta)}</div>` : ""}
+    ${meta ? `<div class="signature-panel-meta">${escapeHtml(meta)}</div>` : ""}
   `;
 }
 
