@@ -31,8 +31,10 @@ from xml.etree import ElementTree as ET
 import ledger_safety
 
 
-APP_DIR = Path(__file__).resolve().parent
-STATIC_DIR = APP_DIR / "static"
+FROZEN = bool(getattr(sys, "frozen", False))
+APP_DIR = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR)).resolve() if FROZEN else APP_DIR
+STATIC_DIR = RESOURCE_DIR / "static"
 DATA_DIR = APP_DIR / "data"
 DB_PATH = DATA_DIR / "tuina_records.sqlite3"
 EXCEL_DIR = APP_DIR / "doc_patient"
@@ -3503,7 +3505,9 @@ def list_test_signatures(limit: int = 20) -> list[dict[str, Any]]:
 class TuinaHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         clean_path = urllib.parse.urlparse(path).path
-        if clean_path in ("/", "/index.html"):
+        if clean_path == "/":
+            return str(STATIC_DIR / "patient-search.html")
+        if clean_path == "/index.html":
             return str(STATIC_DIR / "index.html")
         if clean_path in ("/patient-search", "/patient-search.html"):
             return str(STATIC_DIR / "patient-search.html")

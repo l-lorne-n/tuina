@@ -18,3 +18,8 @@ __pycache__/
 *.log
 *.tmp
 *.bak
+
+# Local Windows release artifacts
+app/
+build/
+dist/
