@@ -1,0 +1,108 @@
+.settlement-shell {
+  width: min(1280px, calc(100vw - 28px));
+}
+
+.settlement-card {
+  border: 1px solid #d5dde2;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  background: #fff;
+}
+
+.settlement-create-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(180px, 240px) 150px;
+  gap: 12px;
+  align-items: end;
+}
+
+.settlement-field {
+  display: grid;
+  gap: 6px;
+  color: #40505c;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settlement-field input.locked {
+  color: #52616c;
+  background: #edf1f3;
+}
+
+.settlement-note,
+.settlement-meta {
+  color: #63717c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settlement-note {
+  margin: 10px 0 0;
+}
+
+.settlement-count {
+  color: #63717c;
+  font-weight: 800;
+}
+
+.settlement-list {
+  display: grid;
+  gap: 10px;
+}
+
+.settlement-item {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(300px, auto) 70px;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid #dce4e8;
+  border-radius: 8px;
+  padding: 14px;
+  color: inherit;
+  background: #fff;
+  text-decoration: none;
+}
+
+.settlement-item:hover {
+  border-color: #89ad9f;
+  background: #f8fcfa;
+}
+
+.settlement-range {
+  color: #1f2a33;
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.settlement-item-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settlement-item-stats span {
+  border-radius: 14px;
+  padding: 5px 9px;
+  color: #11623f;
+  background: #e6f5ed;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.settlement-open {
+  color: #08725e;
+  font-weight: 900;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  .settlement-create-grid,
+  .settlement-item {
+    grid-template-columns: 1fr;
+  }
+
+  .settlement-open {
+    text-align: left;
+  }
+}

@@ -1,0 +1,59 @@
+.settlement-banner {
+  border: 1px solid #efc9c9;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  color: #8a3030;
+  background: #fff1f1;
+  font-weight: 800;
+}
+
+.settlement-debt-row {
+  grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 1fr) 165px 130px 120px;
+}
+
+.settlement-debt-row.debt {
+  border-color: #efc9c9;
+  background: #fff7f7;
+}
+
+.settlement-revoke-card {
+  border-color: #e5b8b8;
+}
+
+.settlement-warning {
+  color: #8a3030;
+  font-weight: 800;
+}
+
+.settlement-revoke-grid {
+  display: grid;
+  grid-template-columns: 180px minmax(260px, 1fr) 150px;
+  gap: 12px;
+  align-items: end;
+}
+
+.settlement-revoke-grid label {
+  display: grid;
+  gap: 6px;
+  color: #40505c;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.danger-button {
+  color: #fff;
+  border-color: #a13b3b;
+  background: #a13b3b;
+}
+
+.danger-button:hover {
+  background: #872f2f;
+}
+
+@media (max-width: 980px) {
+  .settlement-debt-row,
+  .settlement-revoke-grid {
+    grid-template-columns: 1fr;
+  }
+}

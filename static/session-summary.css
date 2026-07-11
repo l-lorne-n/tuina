@@ -84,8 +84,35 @@
   font-weight: 900;
 }
 
+.summary-row.voided {
+  color: #87939c;
+  border-color: #efc9c9;
+  background: #fff1f1;
+  text-decoration: line-through;
+  opacity: 0.88;
+}
+
+.summary-row.correction {
+  border-color: #efc9c9;
+  background: #fff1f1;
+}
+
 .therapist-row {
   grid-template-columns: 120px repeat(2, minmax(0, 1fr));
+}
+
+.debt-row {
+  grid-template-columns: minmax(140px, 1.2fr) minmax(120px, 1fr) 155px 120px 120px 100px;
+}
+
+.debt-row.debt {
+  border-color: #efc9c9;
+  background: #fff7f7;
+}
+
+.debt-value {
+  color: #9b2f2f;
+  font-weight: 900;
 }
 
 .record-row {
@@ -105,6 +132,11 @@
 .summary-badge.decrease {
   color: #8a4f08;
   background: #fff3df;
+}
+
+.summary-badge.correction {
+  color: #9b2f2f;
+  background: #ffe0e0;
 }
 
 .summary-muted {
@@ -132,11 +164,22 @@
   background: #fff3df;
 }
 
+.summary-signature.correction {
+  color: #9b2f2f;
+  background: #ffe0e0;
+}
+
+.summary-signature.voided {
+  color: #63717c;
+  background: #edf1f3;
+}
+
 @media (max-width: 980px) {
   .filter-card,
   .stat-grid,
   .summary-row,
   .therapist-row,
+  .debt-row,
   .record-row {
     grid-template-columns: 1fr;
   }

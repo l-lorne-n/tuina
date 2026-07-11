@@ -20,6 +20,10 @@
   grid-column: span 3;
 }
 
+.patient-overview .address-field {
+  grid-column: span 2;
+}
+
 .field-label {
   color: #63717c;
   font-size: 12px;
@@ -267,6 +271,19 @@
   background: #fff;
 }
 
+.adjustment-row.voided {
+  color: #87939c;
+  border-color: #efc9c9;
+  background: #fff1f1;
+  text-decoration: line-through;
+  opacity: 0.88;
+}
+
+.adjustment-row.correction {
+  border-color: #efc9c9;
+  background: #fff1f1;
+}
+
 .operation-badge {
   min-width: 72px;
   justify-self: start;
@@ -282,6 +299,11 @@
 .operation-badge.decrease {
   color: #8a4f08;
   background: #fff3df;
+}
+
+.operation-badge.correction {
+  color: #9b2f2f;
+  background: #ffe0e0;
 }
 
 .adjustment-main {
@@ -341,6 +363,16 @@
   background: #fff3df;
 }
 
+.signature-status.correction {
+  color: #9b2f2f;
+  background: #ffe0e0;
+}
+
+.signature-status.voided {
+  color: #63717c;
+  background: #edf1f3;
+}
+
 .button-link.compact {
   padding: 6px 10px;
   font-size: 13px;
@@ -357,7 +389,8 @@
     grid-template-columns: 1fr;
   }
 
-  .patient-overview .wide {
+  .patient-overview .wide,
+  .patient-overview .address-field {
     grid-column: auto;
   }
 }

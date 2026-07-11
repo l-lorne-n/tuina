@@ -28,6 +28,10 @@
           href: signatureHref,
           note: page === "patient-sessions" && patientId ? "当前患者签名" : "签名画板",
         },
+        { id: "backup", label: "云备份", href: "/backup.html", note: "增量加密备份" },
+        { id: "adjustment-reversal", label: "冲正流水", href: "/adjustment-reversal.html", note: "撤销加减次数" },
+        { id: "bulk-sign", label: "批量补签", href: "/bulk-sign.html", note: "老板补签确认" },
+        { id: "settlements", label: "月结", href: "/settlements.html", note: "区间结算存档" },
       ],
     },
     {

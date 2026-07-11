@@ -15,6 +15,7 @@ const elements = {
   patientCountValue: document.querySelector("#patientCountValue"),
   recordCountValue: document.querySelector("#recordCountValue"),
   therapistStatsTable: document.querySelector("#therapistStatsTable"),
+  debtTable: document.querySelector("#debtTable"),
   recordTable: document.querySelector("#recordTable"),
 };
 
@@ -48,7 +49,7 @@ async function loadPatients() {
   for (const patient of patients) {
     const option = document.createElement("option");
     option.value = String(patient.id);
-    option.textContent = `${String(patient.order).padStart(3, "0")} · ${patient.name}`;
+    option.textContent = patientBusinessLabel(patient);
     elements.patientSelect.appendChild(option);
   }
 }
@@ -108,6 +109,7 @@ function renderSummary(payload) {
   elements.recordCountValue.textContent = `总流水 ${summary.recordCount || 0} 条`;
 
   renderTherapistStats(payload.therapistStats || []);
+  renderDebts(payload.debts || []);
   renderRecords(payload.records || []);
   setStatus(`${scopeText}，共 ${summary.recordCount || 0} 条流水`, "success");
 }
@@ -130,6 +132,37 @@ function renderTherapistStats(items) {
             <div class="summary-main">${escapeHtml(item.therapist)}</div>
             <div>${formatNumber(item.workSessions)} 次</div>
             <div>${formatNumber(item.workCount)} 条</div>
+          </div>
+        `
+      )
+      .join("")}
+  `;
+}
+
+function renderDebts(items) {
+  if (!items.length) {
+    elements.debtTable.innerHTML = '<div class="empty-state">目前没有赊账患者</div>';
+    return;
+  }
+  elements.debtTable.innerHTML = `
+    <div class="summary-row debt-row header">
+      <div>患者</div>
+      <div>电话</div>
+      <div>赊账时间</div>
+      <div>当前剩余</div>
+      <div>赊账次数</div>
+      <div>操作</div>
+    </div>
+    ${items
+      .map(
+        (item) => `
+          <div class="summary-row debt-row debt">
+            <div>${escapeHtml(patientBusinessLabel(item))}</div>
+            <div class="summary-muted">${escapeHtml(item.phone || "-")}</div>
+            <div class="summary-muted">${escapeHtml(item.debtSince || "-")}</div>
+            <div>${escapeHtml(item.remainingSessions)} 次</div>
+            <div class="debt-value">${escapeHtml(item.owedSessions)} 次</div>
+            <div><a class="text-link" href="/patient-sessions.html?patientId=${item.patientId}">去处理</a></div>
           </div>
         `
       )
@@ -162,27 +195,37 @@ function renderRecord(item) {
   const isIncrease = item.operation === "increase";
   const isLegacyRecharge = item.operation === "legacy_recharge";
   const isRecharge = isIncrease || isLegacyRecharge;
-  const amountText = isRecharge ? `${formatAmount(item.amount)} 元` : "-";
-  const typeLabel = isLegacyRecharge ? "原充值" : isIncrease ? "充值" : "消费";
-  const badgeClass = isRecharge ? "" : "decrease";
-  const sessionPrefix = isRecharge ? "+" : "-";
+  const amountText = isRecharge ? `${formatSignedAmount(item.amount)} 元` : "-";
+  const typeLabel = recordTypeLabel(item);
+  const badgeClass = item.isCorrection ? "correction" : isRecharge ? "" : "decrease";
+  const rowClass = [
+    "summary-row",
+    "record-row",
+    item.isVoided ? "voided" : "",
+    item.isCorrection ? "correction" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return `
-    <div class="summary-row record-row">
+    <div class="${rowClass}">
       <div class="summary-muted">${escapeHtml(item.occurredAt || "-")}</div>
       <span class="summary-badge ${badgeClass}">${typeLabel}</span>
-      <div>${String(item.patientOrder).padStart(3, "0")} · ${escapeHtml(item.patientName)}</div>
+      <div>${escapeHtml(patientBusinessLabel(item))}</div>
       <div>${escapeHtml(isRecharge ? "充值不分师傅" : item.therapist || "未记录")}</div>
-      <div>${sessionPrefix}${formatNumber(item.sessions)} 次</div>
+      <div>${formatSignedSessionEffect(item)} 次</div>
       <div>${amountText}</div>
       <div>${empty(item.beforeSessions)} → ${empty(item.afterSessions)}</div>
       <div>${renderSignatureStatus(item)}</div>
-      <div class="summary-muted">${escapeHtml(item.note || "-")}</div>
+      <div class="summary-muted">${escapeHtml(recordNote(item))}</div>
     </div>
   `;
 }
 
 function renderSignatureStatus(item) {
   if (item.operation === "legacy_recharge") return '<span class="summary-muted">原记录</span>';
+  if (item.isCorrection) return '<span class="summary-signature correction">冲正记录</span>';
+  if (item.isVoided) return '<span class="summary-signature voided">已冲正</span>';
+  if (item.signatureStatus === "not_required") return '<span class="summary-muted">无需签名</span>';
   if (item.signatureStatus === "signed" && item.signatureUrl) {
     return `<span class="summary-signature signed">已签名</span><a class="text-link" href="${escapeHtml(
       item.signatureUrl
@@ -200,7 +243,37 @@ function signAdjustmentUrl(item) {
     }${item.operation === "increase" ? "+" : "-"}${formatNumber(item.sessions)}次`
   );
   const returnTo = encodeURIComponent("/session-summary.html");
-  return `/signature-pad.html?patientId=${item.patientId}&kind=flow&adjustmentId=${item.id}&note=${note}&returnTo=${returnTo}`;
+  const kind = item.operation === "decrease" ? "visit" : "flow";
+  return `/signature-pad.html?patientId=${item.patientId}&kind=${kind}&adjustmentId=${item.id}&note=${note}&returnTo=${returnTo}`;
+}
+
+function recordTypeLabel(item) {
+  if (item.operation === "legacy_recharge") return "原充值";
+  if (item.isCorrection) return item.operation === "increase" ? "冲正充值" : "冲正消费";
+  return item.operation === "increase" ? "充值" : "消费";
+}
+
+function recordNote(item) {
+  if (item.isCorrection) return item.note || "冲正流水";
+  if (item.isVoided) {
+    const reason = item.correctionReason || "已冲正";
+    const note = item.correctionNote ? `：${item.correctionNote}` : "";
+    return `${item.note || "-"}（已冲正，原因：${reason}${note}）`;
+  }
+  return item.note || "-";
+}
+
+function formatSignedSessionEffect(item) {
+  const sessions = Number(item.sessions || 0);
+  const effect = item.operation === "decrease" ? -sessions : sessions;
+  return `${effect > 0 ? "+" : ""}${formatNumber(effect)}`;
+}
+
+function formatSignedAmount(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "0";
+  const text = Number.isInteger(number) ? String(number) : number.toFixed(2);
+  return number > 0 ? text : text;
 }
 
 function updateDateInputForRange(resetValue) {
@@ -262,6 +335,16 @@ function formatNumber(value) {
 
 function empty(value) {
   return value === null || value === undefined || value === "" ? "-" : String(value);
+}
+
+function patientBusinessLabel(item) {
+  const name = item.patientName || item.name || "-";
+  const address = item.patientAddress || item.address || "";
+  const recordNo = item.patientRecordNo ?? item.recordNo ?? "";
+  if (address && recordNo !== "") return `${address} ${recordNo}号 · ${name}`;
+  if (address) return `${address} · ${name}`;
+  if (recordNo !== "") return `无地址 ${recordNo}号 · ${name}`;
+  return name;
 }
 
 function escapeHtml(value) {

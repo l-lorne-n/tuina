@@ -7,6 +7,7 @@ const elements = {
   weightValue: document.querySelector("#weightValue"),
   heightValue: document.querySelector("#heightValue"),
   addressValue: document.querySelector("#addressValue"),
+  recordNoValue: document.querySelector("#recordNoValue"),
   notesValue: document.querySelector("#notesValue"),
   directorySignatureBox: document.querySelector("#directorySignatureBox"),
   flowSignatureSelect: document.querySelector("#flowSignatureSelect"),
@@ -78,9 +79,7 @@ async function loadPage() {
 }
 
 function renderPage() {
-  elements.pageSummary.textContent = `第 ${patient.order} 位，剩余 ${
-    patient.remainingSessions ?? "-"
-  } 次`;
+  elements.pageSummary.textContent = `${patientLocationLabel(patient)}，剩余 ${patient.remainingSessions ?? "-"} 次`;
 
   setText(elements.nameValue, patient.name);
   setText(elements.genderValue, patient.gender);
@@ -89,6 +88,7 @@ function renderPage() {
   setText(elements.weightValue, patient.weight);
   setText(elements.heightValue, patient.height);
   setText(elements.addressValue, patient.address);
+  setText(elements.recordNoValue, patient.recordNo);
   setText(elements.notesValue, patient.notes);
   elements.remainingValue.textContent = patient.remainingSessions ?? "-";
 
@@ -98,6 +98,15 @@ function renderPage() {
   if (!increaseAmountEdited) updateDefaultIncreaseAmount();
   renderAdjustmentList();
   renderOriginalRecharges();
+}
+
+function patientLocationLabel(item) {
+  const address = item.address || "";
+  const recordNo = item.recordNo ?? "";
+  if (address && recordNo !== "") return `${address} ${recordNo}号`;
+  if (address) return address;
+  if (recordNo !== "") return `无地址 ${recordNo}号`;
+  return "未填写地址和编号";
 }
 
 function normalizeVisitSignatures(history, signatureItem) {
@@ -132,21 +141,22 @@ function renderSignatureBox(container, url, label) {
 
 function renderFlowSignatureSelect() {
   elements.flowSignatureSelect.innerHTML = "";
-  if (!adjustments.length) {
+  const flowAdjustments = adjustments
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.operation === "increase" && !item.isCorrection);
+  if (!flowAdjustments.length) {
     const option = document.createElement("option");
     option.value = "";
-    option.textContent = "暂无流水";
+    option.textContent = "暂无充值流水";
     elements.flowSignatureSelect.appendChild(option);
-    elements.flowSignatureBox.innerHTML = '<span class="empty-signature">暂无流水签名</span>';
+    elements.flowSignatureBox.innerHTML = '<span class="empty-signature">暂无充值签名</span>';
     return;
   }
 
-  adjustments.forEach((item, index) => {
+  flowAdjustments.forEach(({ item, index }) => {
     const option = document.createElement("option");
     option.value = String(index);
-    option.textContent = `${adjustmentLabel(item)} · ${dateLabel(item.occurredAt)} · ${signatureStatusLabel(
-      item.signatureStatus
-    )}`;
+    option.textContent = `${adjustmentLabel(item)} · ${dateLabel(item.occurredAt)} · ${flowSignatureStateLabel(item)}`;
     elements.flowSignatureSelect.appendChild(option);
   });
   elements.flowSignatureSelect.value = "0";
@@ -158,6 +168,15 @@ function renderSelectedFlowSignature() {
   const item = adjustments[index];
   if (!item) {
     elements.flowSignatureBox.innerHTML = '<span class="empty-signature">暂无流水签名</span>';
+    return;
+  }
+  if (item.isCorrection || item.isVoided || item.signatureStatus === "not_required") {
+    elements.flowSignatureBox.innerHTML = `
+      <div class="flow-signature-empty">
+        <strong>${escapeHtml(flowSignatureStateLabel(item))}</strong>
+        <span>${escapeHtml(formatAdjustmentMeta(item))}</span>
+      </div>
+    `;
     return;
   }
   if (item.signatureUrl) {
@@ -228,32 +247,35 @@ function renderAdjustmentList() {
 
 function renderAdjustment(item) {
   const isIncrease = item.operation === "increase";
+  const rowClass = ["adjustment-row", item.isVoided ? "voided" : "", item.isCorrection ? "correction" : ""]
+    .filter(Boolean)
+    .join(" ");
   return `
-    <div class="adjustment-row">
-      <span class="operation-badge ${isIncrease ? "" : "decrease"}">${
-    isIncrease ? "充值" : "消费"
-  }</span>
-      <div class="adjustment-main">${isIncrease ? "+" : "-"}${escapeHtml(item.sessions)} 次</div>
+    <div class="${rowClass}">
+      <span class="operation-badge ${item.isCorrection ? "correction" : isIncrease ? "" : "decrease"}">${adjustmentTypeLabel(
+    item
+  )}</span>
+      <div class="adjustment-main">${formatSignedSessionEffect(item)} 次</div>
       <div class="adjustment-muted">${
-        isIncrease ? `金额 ${escapeHtml(formatAmount(item.amount))}` : "消费扣次"
+        isIncrease ? `金额 ${escapeHtml(formatAmount(item.amount))}` : item.isCorrection ? "冲正消费" : "消费扣次"
       }</div>
       <div class="adjustment-muted">${escapeHtml(
         isIncrease ? "充值不分师傅" : item.therapist || "未记录师傅"
       )}</div>
       <div class="adjustment-muted">
-        <span class="signature-status ${signatureStatusClass(item.signatureStatus)}">${signatureStatusLabel(
-    item.signatureStatus
-  )}</span>
+        ${renderAdjustmentSignatureStatus(item)}
         ${
-          item.signatureUrl
+          !item.isVoided && !item.isCorrection && item.signatureUrl
             ? `<a class="text-link" href="${escapeHtml(item.signatureUrl)}" target="_blank" rel="noreferrer">查看</a>`
-            : `<a class="text-link" href="${signAdjustmentUrl(item)}">去签名</a>`
+            : !item.isVoided && !item.isCorrection
+            ? `<a class="text-link" href="${signAdjustmentUrl(item)}">去签名</a>`
+            : ""
         }
       </div>
       <div class="adjustment-muted">剩余 ${empty(item.beforeSessions)} → ${escapeHtml(
     item.afterSessions
   )}</div>
-      <div class="adjustment-muted">${escapeHtml(item.note || "-")}</div>
+      <div class="adjustment-muted">${escapeHtml(adjustmentNote(item))}</div>
       <div class="adjustment-muted">${escapeHtml(item.occurredAt || "空空")}</div>
     </div>
   `;
@@ -408,7 +430,8 @@ function formatAdjustmentMeta(item) {
 function signAdjustmentUrl(item) {
   const returnTo = encodeURIComponent(`/patient-sessions.html?patientId=${patient.id}`);
   const note = encodeURIComponent(formatAdjustmentMeta(item));
-  return `/signature-pad.html?patientId=${patient.id}&kind=flow&adjustmentId=${item.id}&note=${note}&returnTo=${returnTo}`;
+  const kind = item.operation === "decrease" ? "visit" : "flow";
+  return `/signature-pad.html?patientId=${patient.id}&kind=${kind}&adjustmentId=${item.id}&note=${note}&returnTo=${returnTo}`;
 }
 
 function signatureStatusLabel(status) {
@@ -417,6 +440,41 @@ function signatureStatusLabel(status) {
 
 function signatureStatusClass(status) {
   return status === "signed" ? "signed" : "pending";
+}
+
+function flowSignatureStateLabel(item) {
+  if (item.isCorrection) return "冲正记录";
+  if (item.isVoided) return "已冲正";
+  if (item.signatureStatus === "not_required") return "无需签名";
+  return signatureStatusLabel(item.signatureStatus);
+}
+
+function renderAdjustmentSignatureStatus(item) {
+  if (item.isCorrection) return '<span class="signature-status correction">冲正记录</span>';
+  if (item.isVoided) return '<span class="signature-status voided">已冲正</span>';
+  if (item.signatureStatus === "not_required") return '<span class="signature-status voided">无需签名</span>';
+  return `<span class="signature-status ${signatureStatusClass(item.signatureStatus)}">${signatureStatusLabel(
+    item.signatureStatus
+  )}</span>`;
+}
+
+function adjustmentTypeLabel(item) {
+  if (item.isCorrection) return item.operation === "increase" ? "冲正充值" : "冲正消费";
+  return item.operation === "increase" ? "充值" : "消费";
+}
+
+function adjustmentNote(item) {
+  if (item.isVoided) {
+    const note = item.correctionNote ? `：${item.correctionNote}` : "";
+    return `${item.note || "-"}（已冲正，原因：${item.correctionReason || "已冲正"}${note}）`;
+  }
+  return item.note || "-";
+}
+
+function formatSignedSessionEffect(item) {
+  const sessions = Number(item.sessions || 0);
+  const effect = item.operation === "decrease" ? -sessions : sessions;
+  return `${effect > 0 ? "+" : ""}${formatAmount(effect)}`;
 }
 
 function formatAmount(value) {

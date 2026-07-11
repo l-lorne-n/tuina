@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>冲正流水</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/ops-tools.css" />
+  </head>
+  <body data-tool-page="adjustment-reversal">
+    <main class="app-shell ops-shell">
+      <header class="topbar">
+        <div>
+          <h1>冲正流水</h1>
+          <p id="reversalStatus">正在读取流水</p>
+        </div>
+        <nav class="page-links" aria-label="页面导航">
+          <a class="button-link" href="/patient-search.html">患者查找</a>
+          <a class="button-link" href="/session-summary.html">流水总结</a>
+        </nav>
+      </header>
+
+      <section class="ops-card ops-grid">
+        <label class="ops-field">
+          <span>统计范围</span>
+          <select id="rangeSelect">
+            <option value="day">当天</option>
+            <option value="month">当月</option>
+            <option value="year">当年</option>
+          </select>
+        </label>
+        <label class="ops-field">
+          <span id="dateLabel">月份</span>
+          <input id="dateInput" type="month" />
+        </label>
+        <label class="ops-field">
+          <span>患者</span>
+          <select id="patientSelect">
+            <option value="">全部患者</option>
+          </select>
+        </label>
+        <label class="ops-field">
+          <span>师傅</span>
+          <select id="therapistSelect">
+            <option value="">全部师傅</option>
+            <option value="王师傅">王师傅</option>
+            <option value="杨师傅">杨师傅</option>
+          </select>
+        </label>
+      </section>
+
+      <section id="reasonCard" class="ops-card" hidden>
+        <div class="section-head">
+          <h2>确认冲正</h2>
+        </div>
+        <p id="selectedRecordText" class="ops-muted">-</p>
+        <div class="reason-grid" role="radiogroup" aria-label="冲正原因">
+          <label><input type="radio" name="reason" value="手误" checked /> 手误</label>
+          <label><input type="radio" name="reason" value="患者反悔" /> 患者反悔</label>
+          <label><input type="radio" name="reason" value="其他" /> 其他</label>
+        </div>
+        <label class="ops-field">
+          <span>其他说明</span>
+          <input id="reasonNoteInput" type="text" placeholder="选择其他时填写" />
+        </label>
+        <div class="ops-actions">
+          <button id="confirmReverseButton" class="primary" type="button">确认冲正</button>
+          <button id="cancelReverseButton" type="button">取消</button>
+        </div>
+      </section>
+
+      <section class="ops-card">
+        <div class="section-head">
+          <h2>流水明细</h2>
+          <button id="refreshButton" type="button">刷新</button>
+        </div>
+        <div id="recordTable" class="ops-table"></div>
+      </section>
+    </main>
+
+    <script src="/adjustment-reversal.js"></script>
+    <script src="/tools-nav.js"></script>
+  </body>
+</html>

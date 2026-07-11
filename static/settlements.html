@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>月结</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/settlements.css" />
+  </head>
+  <body data-tool-page="settlements">
+    <main class="app-shell settlement-shell">
+      <header class="topbar">
+        <div>
+          <h1>月结</h1>
+          <p id="settlementStatus">正在读取月结记录</p>
+        </div>
+        <nav class="page-links" aria-label="页面导航">
+          <a class="button-link" href="/patient-search.html">患者查找</a>
+          <a class="button-link" href="/session-summary.html">流水总结</a>
+        </nav>
+      </header>
+
+      <section class="settlement-card">
+        <div class="section-head">
+          <h2>生成新月结单</h2>
+        </div>
+        <div class="settlement-create-grid">
+          <label class="settlement-field">
+            <span>起始日期</span>
+            <input id="startDateInput" type="date" />
+          </label>
+          <label class="settlement-field">
+            <span>结束日期</span>
+            <input id="endDateInput" type="date" />
+          </label>
+          <button id="createSettlementButton" class="primary" type="button">生成月结单</button>
+        </div>
+        <p id="dateRuleText" class="settlement-note">第一份月结可以自行选择起始日期。</p>
+        <p class="settlement-note">月结会冻结当时的师傅有效次数、充值、消费、冲正和截止结束日的赊账情况。</p>
+      </section>
+
+      <section class="settlement-card">
+        <div class="section-head">
+          <h2>历史月结单</h2>
+          <span id="settlementCount" class="settlement-count">0 份</span>
+        </div>
+        <div id="settlementList" class="settlement-list"></div>
+      </section>
+    </main>
+
+    <script src="/settlements.js"></script>
+    <script src="/tools-nav.js"></script>
+  </body>
+</html>

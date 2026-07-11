@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>云备份</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/ops-tools.css" />
+  </head>
+  <body data-tool-page="backup">
+    <main class="app-shell ops-shell">
+      <header class="topbar">
+        <div>
+          <h1>云备份</h1>
+          <p id="backupStatusText">正在读取备份状态</p>
+        </div>
+        <nav class="page-links" aria-label="页面导航">
+          <a class="button-link" href="/patient-search.html">患者查找</a>
+          <a class="button-link" href="/session-summary.html">流水总结</a>
+        </nav>
+      </header>
+
+      <section class="ops-card">
+        <div class="section-head">
+          <h2>增量加密备份</h2>
+        </div>
+        <p class="ops-muted">
+          每次备份都会包含 SQLite 数据库快照、签名绑定文件、清单文件和小日志；正式电子签名图片只上传新增或变更的 PNG。
+        </p>
+        <div class="ops-actions">
+          <span id="backupBadge" class="ops-status">云备份检查中</span>
+          <button id="backupNowButton" class="primary" type="button">立即增量备份</button>
+          <button id="refreshBackupButton" type="button">刷新状态</button>
+        </div>
+        <div class="backup-detail-grid">
+          <div class="backup-detail">
+            <strong>上次成功</strong>
+            <span id="lastSuccessValue">-</span>
+          </div>
+          <div class="backup-detail">
+            <strong>云端文件</strong>
+            <span id="lastRemoteValue">-</span>
+          </div>
+          <div class="backup-detail">
+            <strong>本包新增签名</strong>
+            <span id="lastSignatureValue">-</span>
+          </div>
+          <div class="backup-detail">
+            <strong>加密包大小</strong>
+            <span id="lastSizeValue">-</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/backup.js"></script>
+    <script src="/tools-nav.js"></script>
+  </body>
+</html>

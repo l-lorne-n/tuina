@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>批量补签</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/ops-tools.css" />
+  </head>
+  <body data-tool-page="bulk-sign">
+    <main class="app-shell ops-shell">
+      <header class="topbar">
+        <div>
+          <h1>批量补签</h1>
+          <p id="bulkStatus">正在读取待补签流水</p>
+        </div>
+        <nav class="page-links" aria-label="页面导航">
+          <a class="button-link" href="/patient-search.html">患者查找</a>
+          <a class="button-link" href="/session-summary.html">流水总结</a>
+        </nav>
+      </header>
+
+      <section class="ops-card ops-grid">
+        <label class="ops-field">
+          <span>统计范围</span>
+          <select id="rangeSelect">
+            <option value="day">当天</option>
+            <option value="month">当月</option>
+            <option value="year">当年</option>
+          </select>
+        </label>
+        <label class="ops-field">
+          <span id="dateLabel">月份</span>
+          <input id="dateInput" type="month" />
+        </label>
+        <label class="ops-field">
+          <span>患者</span>
+          <select id="patientSelect">
+            <option value="">全部患者</option>
+          </select>
+        </label>
+        <label class="ops-field">
+          <span>师傅</span>
+          <select id="therapistSelect">
+            <option value="">全部师傅</option>
+            <option value="王师傅">王师傅</option>
+            <option value="杨师傅">杨师傅</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="ops-card">
+        <div class="section-head">
+          <h2>待补签流水</h2>
+          <button id="refreshButton" type="button">刷新</button>
+        </div>
+        <label class="bulk-checkbox-label">
+          <input id="selectAllCheckbox" type="checkbox" />
+          全选当前列表
+        </label>
+        <p id="selectionSummary" class="ops-muted">未选择流水</p>
+        <div id="recordTable" class="ops-table"></div>
+      </section>
+
+      <section class="ops-card canvas-card">
+        <div class="section-head">
+          <h2>老板补签确认</h2>
+        </div>
+        <label class="ops-field">
+          <span>签字人</span>
+          <input id="signerNameInput" type="text" value="老板确认" />
+        </label>
+        <label class="ops-field">
+          <span>补签备注</span>
+          <input id="signatureNoteInput" type="text" placeholder="例如：老板批量确认不在店期间流水" />
+        </label>
+        <canvas id="signatureCanvas" class="bulk-canvas"></canvas>
+        <div class="ops-actions">
+          <button id="clearButton" type="button">清空签名</button>
+          <button id="saveButton" class="primary" type="button">保存批量补签</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="/bulk-sign.js"></script>
+    <script src="/tools-nav.js"></script>
+  </body>
+</html>

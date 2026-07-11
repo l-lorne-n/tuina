@@ -68,7 +68,12 @@ function render() {
   const query = patientSearchInput.value.trim();
   const visible = patients.filter((patient) => patientMatches(patient, query)).sort(comparePatients);
   const viewLabel = currentView === "signatures" ? "签名视图" : "卡片视图";
-  const sortLabel = patientSortSelect.value === "pinyin" ? "首字母顺序" : "编号顺序";
+  const sortLabels = {
+    order: "录入顺序",
+    address: "地址编号顺序",
+    pinyin: "首字母顺序",
+  };
+  const sortLabel = sortLabels[patientSortSelect.value] || sortLabels.order;
 
   searchSummary.textContent = query
     ? `匹配 ${visible.length} / ${patients.length} 人，${viewLabel}，${sortLabel}`
@@ -88,19 +93,20 @@ function render() {
 function renderPatientCard(patient) {
   const signatureItem = signatureItemsByPatientId.get(Number(patient.id));
   const remaining = patient.remainingSessions ?? "-";
-  const phone = patient.phone || "-";
+  const address = patient.address || "-";
+  const recordNo = patient.recordNo ?? "-";
   return `
     <article class="patient-card">
       <div class="patient-card-head">
         <div class="patient-card-title">${escapeHtml(patient.name)}</div>
         <div class="patient-card-links">
-          <a class="text-link" href="/?patientId=${patient.id}">完整记录</a>
-          <a class="text-link" href="/patient-sessions.html?patientId=${patient.id}">增添次数</a>
+          <a class="patient-card-action" href="/patient-sessions.html?patientId=${patient.id}">增减次数</a>
         </div>
       </div>
       <div class="patient-card-meta">
         ${metaItem("剩余次数", remaining)}
-        ${metaItem("电话", phone)}
+        ${metaItem("地址", address)}
+        ${metaItem("编号", recordNo)}
       </div>
       ${renderSignatureSet(patient.name, signatureItem)}
     </article>
@@ -119,7 +125,7 @@ function metaItem(label, value) {
 function renderSignatureSet(name, item) {
   const slots = [
     ["directorySignature", "目录签名"],
-    ["caseSignature", "病历签名"],
+    ["flowSignature", "流水签名"],
     ["visitSignature", "推拿签字"],
   ];
   return `
@@ -182,12 +188,29 @@ function patientMatches(patient, query) {
     patient.name,
     patient.originalName,
     patient.phone,
+    patient.address,
+    patient.recordNo,
+    `${patient.address || ""}${patient.recordNo ?? ""}`,
   ].join("");
   return searchable.includes(query);
 }
 
 function comparePatients(left, right) {
   const orderCompare = Number(left.order) - Number(right.order) || Number(left.id) - Number(right.id);
+  if (patientSortSelect.value === "address") {
+    const leftAddress = left.address || "";
+    const rightAddress = right.address || "";
+    if (leftAddress && !rightAddress) return -1;
+    if (!leftAddress && rightAddress) return 1;
+    const addressCompare = pinyinCollator.compare(leftAddress, rightAddress);
+    if (addressCompare) return addressCompare;
+    const leftNo = Number.isFinite(Number(left.recordNo)) && left.recordNo !== null ? Number(left.recordNo) : null;
+    const rightNo = Number.isFinite(Number(right.recordNo)) && right.recordNo !== null ? Number(right.recordNo) : null;
+    if (leftNo !== null && rightNo === null) return -1;
+    if (leftNo === null && rightNo !== null) return 1;
+    if (leftNo !== null && rightNo !== null && leftNo !== rightNo) return leftNo - rightNo;
+    return orderCompare;
+  }
   if (patientSortSelect.value !== "pinyin") return orderCompare;
   return pinyinCollator.compare(left.name || "", right.name || "") || orderCompare;
 }

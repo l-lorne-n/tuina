@@ -67,7 +67,7 @@ async function init() {
   if (requestedKind && kindLabels[requestedKind]) {
     elements.signatureKindSelect.value = requestedKind;
   }
-  if (requestedAdjustmentId) {
+  if (requestedAdjustmentId && !(requestedKind && kindLabels[requestedKind])) {
     elements.signatureKindSelect.value = "flow";
   }
   const requestedId = Number(params.get("patientId") || 0);
@@ -125,9 +125,9 @@ function renderPatientOptions(preferredId = 0) {
   const query = elements.patientFilterInput.value.trim();
   const visible = patients.filter((patient) => {
     if (!query) return true;
-    return `${patient.order}${patient.name}${patient.originalName || ""}${patient.phone || ""}`.includes(
-      query
-    );
+    return `${patient.name}${patient.originalName || ""}${patient.phone || ""}${patient.address || ""}${
+      patient.recordNo ?? ""
+    }`.includes(query);
   });
 
   elements.patientSelect.innerHTML = "";
@@ -142,7 +142,7 @@ function renderPatientOptions(preferredId = 0) {
   for (const patient of visible) {
     const option = document.createElement("option");
     option.value = patient.id;
-    option.textContent = `${String(patient.order).padStart(3, "0")} ${patient.name}`;
+    option.textContent = patientBusinessLabel(patient);
     elements.patientSelect.appendChild(option);
   }
 
@@ -450,6 +450,16 @@ function safeReturnTo(value) {
   if (!value || !value.startsWith("/")) return "";
   if (value.startsWith("//")) return "";
   return value;
+}
+
+function patientBusinessLabel(item) {
+  const name = item.name || "-";
+  const address = item.address || "";
+  const recordNo = item.recordNo ?? "";
+  if (address && recordNo !== "") return `${address} ${recordNo}号 · ${name}`;
+  if (address) return `${address} · ${name}`;
+  if (recordNo !== "") return `无地址 ${recordNo}号 · ${name}`;
+  return name;
 }
 
 function escapeHtml(value) {

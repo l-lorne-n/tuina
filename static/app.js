@@ -29,6 +29,7 @@ const elements = {
   heightInput: document.querySelector("#heightInput"),
   remainingInput: document.querySelector("#remainingInput"),
   addressInput: document.querySelector("#addressInput"),
+  recordNoInput: document.querySelector("#recordNoInput"),
   notesInput: document.querySelector("#notesInput"),
   signaturePadLink: document.querySelector("#signaturePadLink"),
   entrySignaturePreview: document.querySelector("#entrySignaturePreview"),
@@ -153,7 +154,9 @@ function renderPatientList() {
   const query = elements.searchInput.value.trim();
   const visible = patients.filter((patient) => {
     if (!query) return true;
-    return `${patient.name}${patient.originalName}${patient.phone || ""}`.includes(query);
+    return `${patient.name}${patient.originalName}${patient.phone || ""}${patient.address || ""}${
+      patient.recordNo ?? ""
+    }`.includes(query);
   });
   elements.patientList.innerHTML = "";
   if (!visible.length) {
@@ -200,6 +203,7 @@ function fillForm(patient) {
   elements.heightInput.value = patient.height || "";
   elements.remainingInput.value = patient.remainingSessions ?? "";
   elements.addressInput.value = patient.address || "";
+  elements.recordNoInput.value = patient.recordNo ?? "";
   elements.notesInput.value = patient.notes || "";
   elements.rawTranscriptInput.value = patient.rawTranscript || "";
   elements.rechargeRows.innerHTML = "";
@@ -267,6 +271,7 @@ function collectPayload(status) {
     height: elements.heightInput.value.trim(),
     remainingSessions: elements.remainingInput.value.trim(),
     address: elements.addressInput.value.trim(),
+    recordNo: elements.recordNoInput.value.trim(),
     notes: elements.notesInput.value.trim(),
     rawTranscript: elements.rawTranscriptInput.value.trim(),
     status,
@@ -339,7 +344,9 @@ function applyParsed(parsed) {
   if (fields.phone) elements.phoneInput.value = fields.phone;
   if (fields.weight) elements.weightInput.value = fields.weight;
   if (fields.height) elements.heightInput.value = fields.height;
-  if (fields.address) elements.addressInput.value = fields.address;
+  if (fields.address && [...elements.addressInput.options].some((option) => option.value === fields.address)) {
+    elements.addressInput.value = fields.address;
+  }
   if (fields.remainingSessions !== null && fields.remainingSessions !== undefined) {
     elements.remainingInput.value = fields.remainingSessions;
   }
