@@ -191,6 +191,7 @@ async function revokeSettlement() {
 }
 
 function recordTypeLabel(item) {
+  if (item.isBalanceCorrection) return "余额校正";
   if (item.operation === "legacy_recharge") return "原充值";
   return item.operation === "increase" ? "充值" : "消费";
 }

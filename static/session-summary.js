@@ -37,7 +37,16 @@ async function init() {
   elements.loadSummaryButton.addEventListener("click", loadSummary);
   updateDateInputForRange(false);
   await loadPatients();
+  await loadTherapists();
   await loadSummary();
+}
+
+async function loadTherapists() {
+  const response = await fetch("/api/therapists", { cache: "no-store" });
+  const payload = await response.json();
+  if (!payload.ok) throw new Error(payload.error || "读取师傅失败");
+  elements.therapistSelect.innerHTML = '<option value="">全部师傅</option>';
+  for (const name of payload.therapists || []) elements.therapistSelect.add(new Option(name, name));
 }
 
 async function loadPatients() {
@@ -248,6 +257,7 @@ function signAdjustmentUrl(item) {
 }
 
 function recordTypeLabel(item) {
+  if (item.isBalanceCorrection) return "余额校正";
   if (item.operation === "legacy_recharge") return "原充值";
   if (item.isCorrection) return item.operation === "increase" ? "冲正充值" : "冲正消费";
   return item.operation === "increase" ? "充值" : "消费";

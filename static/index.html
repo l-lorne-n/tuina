@@ -88,10 +88,15 @@
               <span>身高</span>
               <input id="heightInput" inputmode="decimal" />
             </label>
-            <label>
+            <div class="balance-control">
               <span>剩余次数</span>
-              <input id="remainingInput" inputmode="numeric" />
-            </label>
+              <input id="remainingInput" inputmode="numeric" readonly />
+              <small id="balanceStatusText">正在读取余额状态</small>
+              <div class="balance-actions">
+                <button id="correctBalanceButton" type="button">校正初始余额</button>
+                <button id="confirmBalanceButton" type="button">确认初始余额并正式启用</button>
+              </div>
+            </div>
             <label>
               <span>地址</span>
               <select id="addressInput">

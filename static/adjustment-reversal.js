@@ -18,6 +18,7 @@ let patients = [];
 let records = [];
 let selectedRecord = null;
 let autoLoadTimer = 0;
+let loadSequence = 0;
 
 init();
 
@@ -36,7 +37,16 @@ async function init() {
   elements.cancelReverseButton.addEventListener("click", clearSelection);
   elements.confirmReverseButton.addEventListener("click", submitReverse);
   await loadPatients();
+  await loadTherapists();
   await loadRecords();
+}
+
+async function loadTherapists() {
+  const response = await fetch("/api/therapists", { cache: "no-store" });
+  const payload = await response.json();
+  if (!payload.ok) throw new Error(payload.error || "读取师傅失败");
+  elements.therapistSelect.innerHTML = '<option value="">全部师傅</option>';
+  for (const name of payload.therapists || []) elements.therapistSelect.add(new Option(name, name));
 }
 
 async function loadPatients() {
@@ -55,6 +65,7 @@ async function loadPatients() {
 
 async function loadRecords() {
   window.clearTimeout(autoLoadTimer);
+  const sequence = ++loadSequence;
   const params = new URLSearchParams({
     range: elements.rangeSelect.value,
     date: elements.dateInput.value,
@@ -65,11 +76,13 @@ async function loadRecords() {
   try {
     const response = await fetch(`/api/session-summary?${params.toString()}`, { cache: "no-store" });
     const payload = await response.json();
+    if (sequence !== loadSequence) return;
     if (!payload.ok) throw new Error(payload.error || "读取流水失败");
     records = (payload.records || []).filter((item) => !item.isCorrection);
     renderRecords();
     setStatus(`共 ${records.length} 条流水`, "success");
   } catch (error) {
+    if (sequence !== loadSequence) return;
     setStatus(error.message || String(error), "error");
   }
 }
@@ -132,17 +145,24 @@ async function submitReverse() {
     setStatus("选择其他时请填写说明", "error");
     return;
   }
-  const confirmed = window.confirm(`确认冲正流水 #${selectedRecord.id}？系统会插入一条反向流水并更新剩余次数。`);
+  const confirmed = window.confirm(`确认冲正流水 #${selectedRecord.id}？原流水会标记为已冲正，对应次数将恢复；原记录不会删除。`);
   if (!confirmed) return;
   elements.confirmReverseButton.disabled = true;
+  const requestKey = `tuina:reverse:${selectedRecord.id}`;
+  const requestId = persistentRequestId(requestKey);
   try {
     const response = await fetch(`/api/session-adjustments/${selectedRecord.id}/reverse`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason, note }),
+      body: JSON.stringify({
+        reason,
+        note,
+        requestId,
+      }),
     });
     const payload = await response.json();
     if (!payload.ok) throw new Error(payload.error || "冲正失败");
+    sessionStorage.removeItem(requestKey);
     clearSelection();
     await loadRecords();
     setStatus("冲正完成", "success");
@@ -151,6 +171,15 @@ async function submitReverse() {
   } finally {
     elements.confirmReverseButton.disabled = false;
   }
+}
+
+function persistentRequestId(key) {
+  let value = sessionStorage.getItem(key);
+  if (!value) {
+    value = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    sessionStorage.setItem(key, value);
+  }
+  return value;
 }
 
 function clearSelection() {
@@ -185,6 +214,7 @@ function updateDateInput(resetValue) {
 }
 
 function recordTypeLabel(item) {
+  if (item.isBalanceCorrection) return "余额校正";
   if (item.operation === "legacy_recharge") return "原充值";
   if (item.isCorrection) return item.operation === "increase" ? "冲正充值" : "冲正消费";
   return item.operation === "increase" ? "充值" : "消费";

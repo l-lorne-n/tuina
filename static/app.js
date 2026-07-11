@@ -28,6 +28,9 @@ const elements = {
   weightInput: document.querySelector("#weightInput"),
   heightInput: document.querySelector("#heightInput"),
   remainingInput: document.querySelector("#remainingInput"),
+  balanceStatusText: document.querySelector("#balanceStatusText"),
+  correctBalanceButton: document.querySelector("#correctBalanceButton"),
+  confirmBalanceButton: document.querySelector("#confirmBalanceButton"),
   addressInput: document.querySelector("#addressInput"),
   recordNoInput: document.querySelector("#recordNoInput"),
   notesInput: document.querySelector("#notesInput"),
@@ -85,6 +88,8 @@ function bindEvents() {
   elements.saveButton.addEventListener("click", () => saveCurrent("pending", false));
   elements.saveNextButton.addEventListener("click", () => saveCurrent("completed", true));
   elements.reviewButton.addEventListener("click", () => saveCurrent("review", true));
+  elements.correctBalanceButton.addEventListener("click", correctPatientBalance);
+  elements.confirmBalanceButton.addEventListener("click", confirmPatientBalance);
 }
 
 async function createNewPatient() {
@@ -202,6 +207,7 @@ function fillForm(patient) {
   elements.weightInput.value = patient.weight || "";
   elements.heightInput.value = patient.height || "";
   elements.remainingInput.value = patient.remainingSessions ?? "";
+  renderBalanceState(patient);
   elements.addressInput.value = patient.address || "";
   elements.recordNoInput.value = patient.recordNo ?? "";
   elements.notesInput.value = patient.notes || "";
@@ -269,7 +275,6 @@ function collectPayload(status) {
     phone: elements.phoneInput.value.trim(),
     weight: elements.weightInput.value.trim(),
     height: elements.heightInput.value.trim(),
-    remainingSessions: elements.remainingInput.value.trim(),
     address: elements.addressInput.value.trim(),
     recordNo: elements.recordNoInput.value.trim(),
     notes: elements.notesInput.value.trim(),
@@ -282,6 +287,90 @@ function collectPayload(status) {
       rawText: row.querySelector(".recharge-raw").value.trim(),
     })),
   };
+}
+
+function renderBalanceState(patient) {
+  const reviewing = (patient.balanceStatus || "reviewing") === "reviewing";
+  elements.balanceStatusText.textContent = reviewing
+    ? `初始核对中 · 初始余额 ${patient.openingBalance ?? 0} 次`
+    : `已正式启用${patient.balanceConfirmedAt ? ` · ${patient.balanceConfirmedAt}` : ""}`;
+  elements.correctBalanceButton.textContent = reviewing ? "校正初始余额" : "校正余额";
+  elements.confirmBalanceButton.hidden = !reviewing;
+}
+
+function newRequestId(key = "") {
+  if (key) {
+    const saved = sessionStorage.getItem(key);
+    if (saved) return saved;
+  }
+  const value = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  if (key) sessionStorage.setItem(key, value);
+  return value;
+}
+
+async function correctPatientBalance() {
+  if (!currentPatient) return;
+  const reviewing = (currentPatient.balanceStatus || "reviewing") === "reviewing";
+  const label = reviewing ? "新的初始余额" : "校正后余额";
+  const initial = reviewing ? currentPatient.openingBalance ?? 0 : currentPatient.remainingSessions ?? 0;
+  const value = window.prompt(`${currentPatient.name}\n当前余额：${currentPatient.remainingSessions ?? 0} 次\n${label}：`, String(initial));
+  if (value === null) return;
+  if (!/^-?\d+$/.test(value.trim())) {
+    setStatus("余额必须是整数", true);
+    return;
+  }
+  const reason = window.prompt(reviewing ? "初始余额校正原因：" : "原因：上线余额复核 / 历史录入错误 / 其他", reviewing ? "纸质卡片核对" : "上线余额复核");
+  if (reason === null || !reason.trim()) return;
+  const note = window.prompt("补充说明（可留空）：", "");
+  if (note === null) return;
+  const path = reviewing ? "opening-balance-correction" : "balance-correction";
+  const requestKey = `tuina:balance:${currentPatient.id}:${path}:${value.trim()}:${reason.trim()}`;
+  const body = reviewing
+    ? { openingBalance: Number(value), reason: reason.trim(), note: note.trim(), requestId: newRequestId(requestKey) }
+    : { targetBalance: Number(value), reason: reason.trim(), note: note.trim(), requestId: newRequestId(requestKey) };
+  elements.correctBalanceButton.disabled = true;
+  try {
+    const response = await fetch(`/api/patients/${currentPatient.id}/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json();
+    if (!payload.ok) throw new Error(payload.error || "余额校正失败");
+    sessionStorage.removeItem(requestKey);
+    await loadPatients();
+    await selectPatient(currentPatient.id);
+    setStatus(reviewing ? "初始余额已校正" : "余额校正流水已生成");
+  } catch (error) {
+    setStatus(error.message || String(error), true);
+  } finally {
+    elements.correctBalanceButton.disabled = false;
+  }
+}
+
+async function confirmPatientBalance() {
+  if (!currentPatient) return;
+  const message = `确认正式启用 ${currentPatient.name} 的余额？\n初始余额：${currentPatient.openingBalance ?? 0} 次\n当前余额：${currentPatient.remainingSessions ?? 0} 次\n确认后只能通过可追溯流水校正。`;
+  if (!window.confirm(message)) return;
+  elements.confirmBalanceButton.disabled = true;
+  const requestKey = `tuina:balance-confirm:${currentPatient.id}`;
+  try {
+    const response = await fetch(`/api/patients/${currentPatient.id}/confirm-balance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: newRequestId(requestKey) }),
+    });
+    const payload = await response.json();
+    if (!payload.ok) throw new Error(payload.error || "正式启用失败");
+    sessionStorage.removeItem(requestKey);
+    await loadPatients();
+    await selectPatient(currentPatient.id);
+    setStatus("余额已正式启用");
+  } catch (error) {
+    setStatus(error.message || String(error), true);
+  } finally {
+    elements.confirmBalanceButton.disabled = false;
+  }
 }
 
 async function saveCurrent(status, goNext) {

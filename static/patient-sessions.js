@@ -25,6 +25,7 @@ const elements = {
   decreaseButton: document.querySelector("#decreaseButton"),
   decreasePendingButton: document.querySelector("#decreasePendingButton"),
   adjustmentList: document.querySelector("#adjustmentList"),
+  therapistChoiceList: document.querySelector("#therapistChoiceList"),
   originalRechargeList: document.querySelector("#originalRechargeList"),
 };
 
@@ -75,7 +76,18 @@ async function loadPage() {
   signature = payload.signature || {};
   visitSignatures = normalizeVisitSignatures(payload.visitSignatures || [], signature);
   adjustments = payload.adjustments || [];
+  renderTherapistChoices(payload.therapists || []);
   renderPage();
+}
+
+function renderTherapistChoices(names) {
+  elements.therapistChoiceList.innerHTML = names
+    .map(
+      (name) => `<label class="therapist-choice"><input type="radio" name="decreaseTherapist" value="${escapeHtml(
+        name
+      )}" /><span>${escapeHtml(name)}</span></label>`
+    )
+    .join("");
 }
 
 function renderPage() {
@@ -141,9 +153,9 @@ function renderSignatureBox(container, url, label) {
 
 function renderFlowSignatureSelect() {
   elements.flowSignatureSelect.innerHTML = "";
-  const flowAdjustments = adjustments
-    .map((item, index) => ({ item, index }))
-    .filter(({ item }) => item.operation === "increase" && !item.isCorrection);
+  const flowAdjustments = adjustments.filter(
+    (item) => item.operation === "increase" && !item.isCorrection && !item.isBalanceCorrection
+  );
   if (!flowAdjustments.length) {
     const option = document.createElement("option");
     option.value = "";
@@ -153,19 +165,19 @@ function renderFlowSignatureSelect() {
     return;
   }
 
-  flowAdjustments.forEach(({ item, index }) => {
+  flowAdjustments.forEach((item) => {
     const option = document.createElement("option");
-    option.value = String(index);
+    option.value = String(item.id);
     option.textContent = `${adjustmentLabel(item)} · ${dateLabel(item.occurredAt)} · ${flowSignatureStateLabel(item)}`;
     elements.flowSignatureSelect.appendChild(option);
   });
-  elements.flowSignatureSelect.value = "0";
+  elements.flowSignatureSelect.value = String(flowAdjustments[0].id);
   renderSelectedFlowSignature();
 }
 
 function renderSelectedFlowSignature() {
-  const index = Number(elements.flowSignatureSelect.value || 0);
-  const item = adjustments[index];
+  const selectedId = Number(elements.flowSignatureSelect.value || 0);
+  const item = adjustments.find((adjustment) => Number(adjustment.id) === selectedId);
   if (!item) {
     elements.flowSignatureBox.innerHTML = '<span class="empty-signature">暂无流水签名</span>';
     return;
@@ -331,6 +343,8 @@ async function submitAdjustment(operation, shouldSign) {
 
   setButtonsDisabled(true);
   setStatus(`正在记录${label}流水`);
+  const requestKey = `tuina:adjust:${patient.id}:${operation}:${sessions}:${amount}:${therapist}`;
+  const requestId = persistentRequestId(requestKey);
   try {
     const response = await fetch(`/api/session-adjustments/${patient.id}`, {
       method: "POST",
@@ -340,11 +354,13 @@ async function submitAdjustment(operation, shouldSign) {
         sessions,
         amount,
         therapist,
+        requestId,
         note: `${label}${sessions}次${amountNote}${therapistNote}`,
       }),
     });
     const payload = await response.json();
     if (!payload.ok) throw new Error(payload.error || "保存失败");
+    sessionStorage.removeItem(requestKey);
 
     patient = payload.patient;
     adjustments = payload.adjustments || [];
@@ -366,6 +382,15 @@ async function submitAdjustment(operation, shouldSign) {
     setStatus(error.message || String(error), "error");
     setButtonsDisabled(false);
   }
+}
+
+function persistentRequestId(key) {
+  let value = sessionStorage.getItem(key);
+  if (!value) {
+    value = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    sessionStorage.setItem(key, value);
+  }
+  return value;
 }
 
 function setButtonsDisabled(disabled) {
@@ -459,6 +484,7 @@ function renderAdjustmentSignatureStatus(item) {
 }
 
 function adjustmentTypeLabel(item) {
+  if (item.isBalanceCorrection) return "余额校正";
   if (item.isCorrection) return item.operation === "increase" ? "冲正充值" : "冲正消费";
   return item.operation === "increase" ? "充值" : "消费";
 }

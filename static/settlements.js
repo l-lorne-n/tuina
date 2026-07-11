@@ -96,19 +96,35 @@ async function createSettlement() {
 
   elements.createButton.disabled = true;
   setStatus("正在生成月结快照");
+  const requestKey = `tuina:settlement:${startDate}:${endDate}`;
+  const requestId = persistentRequestId(requestKey);
   try {
     const response = await fetch("/api/settlements", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ startDate, endDate }),
+      body: JSON.stringify({
+        startDate,
+        endDate,
+        requestId,
+      }),
     });
     const payload = await response.json();
     if (!payload.ok) throw new Error(payload.error || "生成月结单失败");
+    sessionStorage.removeItem(requestKey);
     window.location.href = `/settlement-detail.html?id=${payload.settlement.id}`;
   } catch (error) {
     setStatus(error.message || String(error), "error");
     validateDates();
   }
+}
+
+function persistentRequestId(key) {
+  let value = sessionStorage.getItem(key);
+  if (!value) {
+    value = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    sessionStorage.setItem(key, value);
+  }
+  return value;
 }
 
 function setStatus(message, tone = "") {

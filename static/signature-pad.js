@@ -379,6 +379,12 @@ async function saveSignature() {
 
   elements.saveSignatureButton.disabled = true;
   setStatus("正在保存签名");
+  const requestKey = `tuina:signature:${selectedPatient.id}:${elements.signatureKindSelect.value}:${requestedAdjustmentId || "general"}`;
+  let requestId = sessionStorage.getItem(requestKey);
+  if (!requestId) {
+    requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    sessionStorage.setItem(requestKey, requestId);
+  }
   try {
     const imageData = elements.signatureCanvas.toDataURL("image/png");
     const response = await fetch("/api/signatures", {
@@ -390,11 +396,13 @@ async function saveSignature() {
         adjustmentId: requestedAdjustmentId || "",
         signerName: elements.signerNameInput.value.trim(),
         note: elements.signatureNoteInput.value.trim(),
+        requestId,
         imageData,
       }),
     });
     const payload = await response.json();
     if (!payload.ok) throw new Error(payload.error || "保存失败");
+    sessionStorage.removeItem(requestKey);
 
     await loadSignatureManifest();
     renderExistingSignatures();

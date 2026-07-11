@@ -463,6 +463,26 @@ h2 {
   color: #a12b2b;
 }
 
+.balance-control {
+  display: grid;
+  gap: 8px;
+}
+
+.balance-control small {
+  color: #5f6f67;
+}
+
+.balance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.balance-actions button {
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

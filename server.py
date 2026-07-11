@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+import ledger_safety
+
 
 APP_DIR = Path(__file__).resolve().parent
 STATIC_DIR = APP_DIR / "static"
@@ -75,9 +77,11 @@ PATIENT_ADDRESS_OPTIONS = (
 CORRECTION_REASONS = ("手误", "患者反悔", "其他")
 BACKUP_RETRY_SECONDS = 60
 BACKUP_RETENTION_DAYS = 30
+BACKUP_FULL_BASELINE_DAYS = 7
 BACKUP_MAGIC = b"TUINABAK1"
 BACKUP_STATUS_LOCK = threading.Lock()
 BACKUP_RUN_LOCK = threading.Lock()
+SIGNATURE_WRITE_LOCK = threading.Lock()
 BACKUP_WORKER_STARTED = False
 BACKUP_STATUS: dict[str, Any] = {
     "state": "idle",
@@ -199,14 +203,35 @@ def now_text() -> str:
 
 
 def connect_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 15000")
     return conn
+
+
+def ensure_pre_migration_backup() -> None:
+    if not DB_PATH.exists() or DB_PATH.stat().st_size == 0:
+        return
+    backup_path = DB_PATH.parent / "backups" / "pre_ledger_safety_v1.sqlite3"
+    if backup_path.exists():
+        return
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(DB_PATH, timeout=15) as source, sqlite3.connect(backup_path) as target:
+        source.backup(target)
+        result = target.execute("PRAGMA integrity_check").fetchone()[0]
+        if result != "ok":
+            backup_path.unlink(missing_ok=True)
+            raise RuntimeError(f"迁移前数据库备份完整性检查失败：{result}")
 
 
 def init_database() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    ensure_pre_migration_backup()
     with connect_db() as conn:
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS patients (
@@ -224,6 +249,12 @@ def init_database() -> None:
                 record_no INTEGER,
                 phone TEXT,
                 remaining_sessions INTEGER,
+                opening_balance INTEGER NOT NULL DEFAULT 0,
+                balance_status TEXT NOT NULL DEFAULT 'reviewing',
+                balance_confirmed_at TEXT,
+                balance_confirm_request_id TEXT,
+                balance_last_corrected_at TEXT,
+                balance_last_correction_reason TEXT,
                 raw_transcript TEXT,
                 notes TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -255,6 +286,7 @@ def init_database() -> None:
                 operation TEXT NOT NULL,
                 sessions INTEGER NOT NULL,
                 amount REAL,
+                amount_cents INTEGER,
                 therapist TEXT,
                 before_sessions INTEGER,
                 after_sessions INTEGER NOT NULL,
@@ -269,6 +301,9 @@ def init_database() -> None:
                 correction_of_adjustment_id INTEGER,
                 correction_reason TEXT,
                 correction_note TEXT,
+                entry_kind TEXT NOT NULL DEFAULT 'normal',
+                request_id TEXT,
+                reversal_request_id TEXT,
                 occurred_at TEXT NOT NULL,
                 note TEXT,
                 created_at TEXT NOT NULL,
@@ -278,12 +313,27 @@ def init_database() -> None:
         )
         conn.execute(
             """
+            CREATE TABLE IF NOT EXISTS therapists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.executemany(
+            "INSERT OR IGNORE INTO therapists (name, active, created_at) VALUES (?, 1, ?)",
+            [(name, now_text()) for name in THERAPISTS],
+        )
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS signature_batches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 signature_url TEXT NOT NULL,
                 signer TEXT,
                 note TEXT,
                 adjustment_count INTEGER NOT NULL,
+                request_id TEXT,
                 signed_at TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
@@ -299,13 +349,18 @@ def init_database() -> None:
                 snapshot_json TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 revoked_at TEXT,
-                revoked_reason TEXT
+                revoked_reason TEXT,
+                request_id TEXT
             )
             """
         )
         ensure_patient_columns(conn)
         ensure_session_adjustment_columns(conn)
+        ensure_settlement_columns(conn)
+        ensure_signature_batch_columns(conn)
+        apply_schema_migrations(conn)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_patients_order ON patients(import_order)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_import_order_unique ON patients(import_order)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_patients_name ON patients(name)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_patients_status ON patients(status)")
         conn.execute(
@@ -325,8 +380,13 @@ def init_database() -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_session_adjustments_correction ON session_adjustments(correction_of_adjustment_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_session_adjustments_signature_batch ON session_adjustments(signature_batch_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_signature_batches_signed ON signature_batches(signed_at)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_signature_batches_request_id ON signature_batches(request_id) WHERE request_id IS NOT NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_settlements_status_end ON settlements(status, end_date)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_adjustments_request_id ON session_adjustments(request_id) WHERE request_id IS NOT NULL")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_adjustments_reversal_request_id ON session_adjustments(reversal_request_id) WHERE reversal_request_id IS NOT NULL")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_settlements_request_id ON settlements(request_id) WHERE request_id IS NOT NULL")
         seed_patients_from_excel(conn)
+        verify_balance_invariants(conn)
         conn.commit()
 
 
@@ -365,7 +425,7 @@ def seed_patients_from_excel(conn: sqlite3.Connection) -> None:
         if name_struck or note_struck or "划掉" in note or "删除" in note:
             continue
 
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO patients (
                 import_order, source_area, source_seq, original_name, name,
@@ -388,6 +448,17 @@ def ensure_patient_columns(conn: sqlite3.Connection) -> None:
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(patients)").fetchall()}
     if "record_no" not in columns:
         conn.execute("ALTER TABLE patients ADD COLUMN record_no INTEGER")
+    additions = {
+        "opening_balance": "INTEGER",
+        "balance_status": "TEXT NOT NULL DEFAULT 'reviewing'",
+        "balance_confirmed_at": "TEXT",
+        "balance_confirm_request_id": "TEXT",
+        "balance_last_corrected_at": "TEXT",
+        "balance_last_correction_reason": "TEXT",
+    }
+    for name, definition in additions.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE patients ADD COLUMN {name} {definition}")
 
 
 def ensure_session_adjustment_columns(conn: sqlite3.Connection) -> None:
@@ -397,6 +468,9 @@ def ensure_session_adjustment_columns(conn: sqlite3.Connection) -> None:
     }
     if "amount" not in columns:
         conn.execute("ALTER TABLE session_adjustments ADD COLUMN amount REAL")
+    if "amount_cents" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN amount_cents INTEGER")
+        conn.execute("UPDATE session_adjustments SET amount_cents = CAST(ROUND(amount * 100) AS INTEGER) WHERE amount IS NOT NULL")
     if "therapist" not in columns:
         conn.execute("ALTER TABLE session_adjustments ADD COLUMN therapist TEXT")
     if "signature_status" not in columns:
@@ -421,6 +495,133 @@ def ensure_session_adjustment_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE session_adjustments ADD COLUMN correction_reason TEXT")
     if "correction_note" not in columns:
         conn.execute("ALTER TABLE session_adjustments ADD COLUMN correction_note TEXT")
+    if "entry_kind" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN entry_kind TEXT NOT NULL DEFAULT 'normal'")
+    if "request_id" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN request_id TEXT")
+    if "reversal_request_id" not in columns:
+        conn.execute("ALTER TABLE session_adjustments ADD COLUMN reversal_request_id TEXT")
+
+
+def ensure_settlement_columns(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(settlements)").fetchall()}
+    if "request_id" not in columns:
+        conn.execute("ALTER TABLE settlements ADD COLUMN request_id TEXT")
+
+
+def ensure_signature_batch_columns(conn: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(signature_batches)").fetchall()}
+    if "request_id" not in columns:
+        conn.execute("ALTER TABLE signature_batches ADD COLUMN request_id TEXT")
+
+
+def apply_schema_migrations(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_balance_confirm_request ON patients(balance_confirm_request_id) WHERE balance_confirm_request_id IS NOT NULL")
+    version = "20260711_ledger_safety_v1"
+    if conn.execute("SELECT 1 FROM schema_migrations WHERE version = ?", (version,)).fetchone():
+        verify_balance_invariants(conn)
+        return
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS opening_balance_corrections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            patient_id INTEGER NOT NULL,
+            before_opening_balance INTEGER NOT NULL,
+            after_opening_balance INTEGER NOT NULL,
+            before_current_balance INTEGER NOT NULL,
+            after_current_balance INTEGER NOT NULL,
+            reason TEXT NOT NULL,
+            note TEXT,
+            request_id TEXT NOT NULL UNIQUE,
+            corrected_at TEXT NOT NULL,
+            FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE RESTRICT
+        )
+        """
+    )
+    conn.execute(
+        """
+        UPDATE patients
+        SET opening_balance = COALESCE(remaining_sessions, 0) - COALESCE((
+            SELECT SUM(CASE WHEN a.operation = 'decrease' THEN -a.sessions ELSE a.sessions END)
+            FROM session_adjustments a
+            WHERE a.patient_id = patients.id
+              AND a.voided_at IS NULL
+              AND a.correction_of_adjustment_id IS NULL
+        ), 0),
+            balance_status = COALESCE(NULLIF(balance_status, ''), 'reviewing')
+        WHERE opening_balance IS NULL
+        """
+    )
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_adjustment_insert_valid
+        BEFORE INSERT ON session_adjustments
+        WHEN NEW.sessions <= 0
+          OR NEW.operation NOT IN ('increase', 'decrease')
+          OR COALESCE(NEW.entry_kind, 'normal') NOT IN ('normal', 'balance_correction')
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid session adjustment');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_settlement_insert_valid
+        BEFORE INSERT ON settlements
+        WHEN NEW.start_date > NEW.end_date OR NEW.status NOT IN ('active', 'revoked')
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid settlement');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_patient_balance_status_insert
+        BEFORE INSERT ON patients
+        WHEN COALESCE(NEW.balance_status, 'reviewing') NOT IN ('reviewing', 'active')
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid balance status');
+        END;
+        CREATE TRIGGER IF NOT EXISTS trg_patient_balance_status_update
+        BEFORE UPDATE OF balance_status ON patients
+        WHEN NEW.balance_status NOT IN ('reviewing', 'active')
+        BEGIN
+            SELECT RAISE(ABORT, 'invalid balance status');
+        END;
+        """
+    )
+    verify_balance_invariants(conn)
+    conn.execute(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+        (version, now_text()),
+    )
+
+
+def effective_adjustment_total(conn: sqlite3.Connection, patient_id: int) -> int:
+    return ledger_safety.effective_adjustment_total(conn, patient_id)
+
+
+def verify_balance_invariants(conn: sqlite3.Connection) -> None:
+    ledger_safety.verify_balance_invariants(conn)
+
+
+def database_health_report() -> dict[str, Any]:
+    with connect_db() as conn:
+        integrity = str(conn.execute("PRAGMA integrity_check").fetchone()[0])
+        foreign_key_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
+        verify_balance_invariants(conn)
+        reviewing = int(
+            conn.execute("SELECT COUNT(*) FROM patients WHERE balance_status = 'reviewing'").fetchone()[0]
+        )
+        active = int(conn.execute("SELECT COUNT(*) FROM patients WHERE balance_status = 'active'").fetchone()[0])
+        return {
+            "integrity": integrity,
+            "foreignKeyIssueCount": len(foreign_key_issues),
+            "balanceInvariant": "ok",
+            "reviewingPatients": reviewing,
+            "activePatients": active,
+        }
 
 
 def row_to_patient_summary(row: sqlite3.Row) -> dict[str, Any]:
@@ -435,10 +636,25 @@ def row_to_patient_summary(row: sqlite3.Row) -> dict[str, Any]:
         "address": row["address"] or "",
         "recordNo": row["record_no"],
         "remainingSessions": row["remaining_sessions"],
+        "openingBalance": row["opening_balance"],
+        "balanceStatus": row["balance_status"] or "reviewing",
         "status": row["status"],
         "rechargeCount": row["recharge_count"] or 0,
         "updatedAt": row["updated_at"],
     }
+
+
+def list_therapist_names(conn: sqlite3.Connection | None = None, active_only: bool = True) -> list[str]:
+    owns_connection = conn is None
+    if conn is None:
+        conn = connect_db()
+    try:
+        where = "WHERE active = 1" if active_only else ""
+        rows = conn.execute(f"SELECT name FROM therapists {where} ORDER BY id ASC").fetchall()
+        return [str(row["name"]) for row in rows]
+    finally:
+        if owns_connection:
+            conn.close()
 
 
 def list_patients() -> list[dict[str, Any]]:
@@ -460,6 +676,7 @@ def create_patient(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     name = str(payload.get("name") or "新建卡片").strip() or "新建卡片"
     created_at = now_text()
     with connect_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         next_order = conn.execute(
             "SELECT COALESCE(MAX(import_order), 0) + 1 AS next_order FROM patients"
         ).fetchone()["next_order"]
@@ -467,9 +684,9 @@ def create_patient(payload: dict[str, Any] | None = None) -> dict[str, Any]:
             """
             INSERT INTO patients (
                 import_order, source_area, source_seq, original_name, name,
-                status, created_at, updated_at
+                remaining_sessions, opening_balance, balance_status, status, created_at, updated_at
             )
-            VALUES (?, ?, '', ?, ?, 'pending', ?, ?)
+            VALUES (?, ?, '', ?, ?, 0, 0, 'reviewing', 'pending', ?, ?)
             """,
             (next_order, "手动新增", name, name, created_at, created_at),
         )
@@ -512,6 +729,11 @@ def get_patient(patient_id: int) -> dict[str, Any] | None:
         "recordNo": patient["record_no"],
         "phone": patient["phone"] or "",
         "remainingSessions": patient["remaining_sessions"],
+        "openingBalance": patient["opening_balance"],
+        "balanceStatus": patient["balance_status"] or "reviewing",
+        "balanceConfirmedAt": patient["balance_confirmed_at"] or "",
+        "balanceLastCorrectedAt": patient["balance_last_corrected_at"] or "",
+        "balanceLastCorrectionReason": patient["balance_last_correction_reason"] or "",
         "rawTranscript": patient["raw_transcript"] or "",
         "notes": patient["notes"] or "",
         "status": patient["status"],
@@ -557,11 +779,6 @@ def save_patient(patient_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     if status not in {"pending", "completed", "review"}:
         status = "pending"
 
-    remaining = payload.get("remainingSessions")
-    remaining_sessions = None
-    if remaining not in (None, ""):
-        remaining_sessions = int(remaining)
-
     address = normalize_patient_address(payload.get("address"))
     record_no = normalize_patient_record_no(
         payload.get("recordNo") if "recordNo" in payload else current.get("recordNo")
@@ -589,7 +806,7 @@ def save_patient(patient_id: int, payload: dict[str, Any]) -> dict[str, Any]:
             """
             UPDATE patients
             SET name = ?, gender = ?, age = ?, weight = ?, height = ?, address = ?, record_no = ?,
-                phone = ?, remaining_sessions = ?, raw_transcript = ?, notes = ?,
+                phone = ?, raw_transcript = ?, notes = ?,
                 status = ?, updated_at = ?
             WHERE id = ?
             """,
@@ -602,7 +819,6 @@ def save_patient(patient_id: int, payload: dict[str, Any]) -> dict[str, Any]:
                 address,
                 record_no,
                 str(payload.get("phone") or "").strip(),
-                remaining_sessions,
                 str(payload.get("rawTranscript") or "").strip(),
                 str(payload.get("notes") or "").strip(),
                 status,
@@ -637,13 +853,194 @@ def save_patient(patient_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     return saved
 
 
+def normalize_request_id(value: Any) -> str:
+    return ledger_safety.normalize_request_id(value)
+
+
+def balance_state_payload(conn: sqlite3.Connection, patient_id: int) -> dict[str, Any]:
+    row = conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
+    if not row:
+        raise ValueError("没有找到这个人名。")
+    effect = effective_adjustment_total(conn, patient_id)
+    opening = int(row["opening_balance"] or 0)
+    return {
+        "patientId": patient_id,
+        "openingBalance": opening,
+        "adjustmentEffect": effect,
+        "remainingSessions": int(row["remaining_sessions"] or 0),
+        "calculatedBalance": opening + effect,
+        "balanceStatus": row["balance_status"] or "reviewing",
+        "balanceConfirmedAt": row["balance_confirmed_at"] or "",
+    }
+
+
+def correct_opening_balance(patient_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    request_id = normalize_request_id(payload.get("requestId"))
+    new_opening = optional_int(payload.get("openingBalance"))
+    if new_opening is None:
+        raise ValueError("请填写新的初始余额")
+    reason = str(payload.get("reason") or "").strip()
+    note = str(payload.get("note") or "").strip()
+    if not reason:
+        raise ValueError("请填写校正原因")
+    corrected_at = now_text()
+
+    conn = connect_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT patient_id FROM opening_balance_corrections WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        if existing:
+            if int(existing["patient_id"]) != patient_id:
+                raise ValueError("requestId 已用于其他患者")
+            conn.commit()
+            return balance_state_payload(conn, patient_id)
+        patient = conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
+        if not patient:
+            raise ValueError("没有找到这个人名。")
+        if (patient["balance_status"] or "reviewing") != "reviewing":
+            raise ValueError("该患者已正式启用，请使用余额校正流水")
+        effect = effective_adjustment_total(conn, patient_id)
+        before_opening = int(patient["opening_balance"] or 0)
+        before_current = int(patient["remaining_sessions"] or 0)
+        after_current = new_opening + effect
+        conn.execute(
+            """
+            UPDATE patients
+            SET opening_balance = ?, remaining_sessions = ?, balance_last_corrected_at = ?,
+                balance_last_correction_reason = ?, updated_at = ?
+            WHERE id = ? AND balance_status = 'reviewing'
+            """,
+            (new_opening, after_current, corrected_at, reason, corrected_at, patient_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO opening_balance_corrections (
+                patient_id, before_opening_balance, after_opening_balance,
+                before_current_balance, after_current_balance, reason, note, request_id, corrected_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (patient_id, before_opening, new_opening, before_current, after_current, reason, note, request_id, corrected_at),
+        )
+        verify_balance_invariants(conn)
+        conn.commit()
+    finally:
+        conn.close()
+    with connect_db() as read_conn:
+        return balance_state_payload(read_conn, patient_id)
+
+
+def confirm_patient_balance(patient_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    request_id = normalize_request_id(payload.get("requestId"))
+    confirmed_at = now_text()
+    conn = connect_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        patient = conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
+        if not patient:
+            raise ValueError("没有找到这个人名。")
+        if patient["balance_confirm_request_id"] == request_id:
+            conn.commit()
+            return balance_state_payload(conn, patient_id)
+        if (patient["balance_status"] or "reviewing") != "reviewing":
+            raise ValueError("该患者余额已经正式启用")
+        state = balance_state_payload(conn, patient_id)
+        if state["calculatedBalance"] != state["remainingSessions"]:
+            raise ValueError("余额与流水不一致，不能正式启用")
+        cursor = conn.execute(
+            """
+            UPDATE patients
+            SET balance_status = 'active', balance_confirmed_at = ?, balance_confirm_request_id = ?, updated_at = ?
+            WHERE id = ? AND balance_status = 'reviewing'
+            """,
+            (confirmed_at, request_id, confirmed_at, patient_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("余额状态已变化，请刷新后重试")
+        conn.commit()
+        return balance_state_payload(conn, patient_id)
+    finally:
+        conn.close()
+
+
+def correct_active_balance(patient_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    request_id = normalize_request_id(payload.get("requestId"))
+    target_balance = optional_int(payload.get("targetBalance"))
+    if target_balance is None:
+        raise ValueError("请填写校正后余额")
+    reason = str(payload.get("reason") or "").strip()
+    note = str(payload.get("note") or "").strip()
+    allowed_reasons = {"上线余额复核", "历史录入错误", "其他"}
+    if reason not in allowed_reasons:
+        raise ValueError("请选择余额校正原因")
+    if reason == "其他" and not note:
+        raise ValueError("选择其他时请填写说明")
+    occurred_at = now_text()
+
+    conn = connect_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT id, patient_id FROM session_adjustments WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        if existing:
+            if int(existing["patient_id"]) != patient_id:
+                raise ValueError("requestId 已用于其他患者")
+            conn.commit()
+            adjustment_id = int(existing["id"])
+        else:
+            patient = conn.execute("SELECT * FROM patients WHERE id = ?", (patient_id,)).fetchone()
+            if not patient:
+                raise ValueError("没有找到这个人名。")
+            if (patient["balance_status"] or "reviewing") != "active":
+                raise ValueError("请先确认初始余额并正式启用")
+            locked = active_settlement_for_date(conn, occurred_at[:10])
+            if locked:
+                raise ValueError("今天已进入月结，请先撤销对应月结")
+            before = int(patient["remaining_sessions"] or 0)
+            difference = target_balance - before
+            if difference == 0:
+                raise ValueError("校正前后余额相同，无需生成流水")
+            operation = "increase" if difference > 0 else "decrease"
+            sessions = abs(difference)
+            cursor = conn.execute(
+                """
+                INSERT INTO session_adjustments (
+                    patient_id, operation, sessions, amount, therapist, before_sessions, after_sessions,
+                    signature_status, entry_kind, request_id, occurred_at, note, created_at
+                ) VALUES (?, ?, ?, NULL, '', ?, ?, 'not_required', 'balance_correction', ?, ?, ?, ?)
+                """,
+                (patient_id, operation, sessions, before, target_balance, request_id, occurred_at, f"{reason}：{note}" if note else reason, occurred_at),
+            )
+            adjustment_id = int(cursor.lastrowid)
+            conn.execute(
+                "UPDATE patients SET remaining_sessions = ?, updated_at = ? WHERE id = ?",
+                (target_balance, occurred_at, patient_id),
+            )
+            verify_balance_invariants(conn)
+            conn.commit()
+    finally:
+        conn.close()
+    return {
+        "adjustment": get_session_adjustment(adjustment_id),
+        "patient": get_patient(patient_id),
+        "adjustments": list_session_adjustments(patient_id),
+    }
+
+
 def row_to_session_adjustment(row: sqlite3.Row) -> dict[str, Any]:
+    amount_cents = row["amount_cents"]
+    amount = (int(amount_cents) / 100) if amount_cents is not None else row["amount"]
     return {
         "id": row["id"],
         "patientId": row["patient_id"],
         "operation": row["operation"],
         "sessions": row["sessions"],
-        "amount": row["amount"],
+        "amount": amount,
+        "amountCents": amount_cents,
         "therapist": row["therapist"] or "",
         "beforeSessions": row["before_sessions"],
         "afterSessions": row["after_sessions"],
@@ -658,6 +1055,8 @@ def row_to_session_adjustment(row: sqlite3.Row) -> dict[str, Any]:
         "correctionOfAdjustmentId": row["correction_of_adjustment_id"] or "",
         "correctionReason": row["correction_reason"] or "",
         "correctionNote": row["correction_note"] or "",
+        "entryKind": row["entry_kind"] or "normal",
+        "isBalanceCorrection": (row["entry_kind"] or "normal") == "balance_correction",
         "isVoided": bool(row["voided_at"]),
         "isCorrection": bool(row["correction_of_adjustment_id"]),
         "occurredAt": row["occurred_at"],
@@ -700,7 +1099,8 @@ def build_session_summary(query: dict[str, list[str]]) -> dict[str, Any]:
     prefix_length = len(date_prefix)
     patient_id = optional_int(first_query_value(query, "patientId"))
     therapist = first_query_value(query, "therapist")
-    if therapist and therapist not in THERAPISTS:
+    therapist_names = list_therapist_names(active_only=False)
+    if therapist and therapist not in therapist_names:
         raise ValueError("师傅筛选无效")
 
     adjustment_clauses = [f"substr(a.occurred_at, 1, {prefix_length}) = ?"]
@@ -751,8 +1151,15 @@ def build_session_summary(query: dict[str, list[str]]) -> dict[str, Any]:
     adjustment_records = [row_to_summary_adjustment(row) for row in adjustment_rows]
     legacy_recharge_records = [row_to_legacy_recharge_summary(row) for row in legacy_recharge_rows]
     visible_adjustment_records = [item for item in adjustment_records if not item.get("isCorrection")]
-    all_increase_records = [item for item in visible_adjustment_records if item["operation"] == "increase"] + legacy_recharge_records
-    all_decrease_records = [item for item in visible_adjustment_records if item["operation"] == "decrease"]
+    balance_correction_records = [item for item in visible_adjustment_records if item.get("isBalanceCorrection")]
+    all_increase_records = [
+        item for item in visible_adjustment_records
+        if item["operation"] == "increase" and not item.get("isBalanceCorrection")
+    ] + legacy_recharge_records
+    all_decrease_records = [
+        item for item in visible_adjustment_records
+        if item["operation"] == "decrease" and not item.get("isBalanceCorrection")
+    ]
     effective_increase_records = [item for item in all_increase_records if not item.get("isVoided")]
     effective_decrease_records = [item for item in all_decrease_records if not item.get("isVoided")]
     decrease_records = [
@@ -761,10 +1168,10 @@ def build_session_summary(query: dict[str, list[str]]) -> dict[str, Any]:
     effective_decrease_records_for_filter = [
         item for item in decrease_records if not item.get("isVoided")
     ]
-    records = all_increase_records + decrease_records
+    records = all_increase_records + decrease_records + balance_correction_records
     records.sort(key=lambda item: (item["occurredAt"], item["id"]), reverse=True)
     therapist_stats = []
-    stat_names = [therapist] if therapist else list(THERAPISTS)
+    stat_names = [therapist] if therapist else therapist_names
     for name in stat_names:
         therapist_decreases = [
             item
@@ -786,7 +1193,7 @@ def build_session_summary(query: dict[str, list[str]]) -> dict[str, Any]:
             "patientId": patient_id or "",
             "therapist": therapist or "",
         },
-        "therapists": list(THERAPISTS),
+        "therapists": therapist_names,
         "summary": {
             "recordCount": len(records),
             "patientCount": len({item["patientId"] for item in records}),
@@ -942,8 +1349,10 @@ def normalize_settlement_date(value: Any, field_name: str) -> str:
     return parsed.isoformat()
 
 
-def list_debtor_patients_at(end_date: str) -> list[dict[str, Any]]:
-    conn = connect_db()
+def list_debtor_patients_at(end_date: str, conn: sqlite3.Connection | None = None) -> list[dict[str, Any]]:
+    owns_connection = conn is None
+    if conn is None:
+        conn = connect_db()
     try:
         patients = conn.execute(
             """
@@ -962,7 +1371,8 @@ def list_debtor_patients_at(end_date: str) -> list[dict[str, Any]]:
             """
         ).fetchall()
     finally:
-        conn.close()
+        if owns_connection:
+            conn.close()
 
     adjustments_by_patient: dict[int, list[sqlite3.Row]] = {}
     for adjustment in adjustment_rows:
@@ -1009,8 +1419,14 @@ def list_debtor_patients_at(end_date: str) -> list[dict[str, Any]]:
     return debts
 
 
-def build_settlement_snapshot(start_date: str, end_date: str) -> dict[str, Any]:
-    conn = connect_db()
+def build_settlement_snapshot(
+    start_date: str,
+    end_date: str,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    owns_connection = conn is None
+    if conn is None:
+        conn = connect_db()
     try:
         adjustment_rows = conn.execute(
             """
@@ -1035,7 +1451,8 @@ def build_settlement_snapshot(start_date: str, end_date: str) -> dict[str, Any]:
             (start_date, end_date),
         ).fetchall()
     finally:
-        conn.close()
+        if owns_connection:
+            conn.close()
 
     adjustment_records = [row_to_summary_adjustment(row) for row in adjustment_rows]
     visible_adjustments = [item for item in adjustment_records if not item.get("isCorrection")]
@@ -1046,15 +1463,17 @@ def build_settlement_snapshot(start_date: str, end_date: str) -> dict[str, Any]:
     effective_increases = [
         item
         for item in records
-        if item["operation"] in {"increase", "legacy_recharge"} and not item.get("isVoided")
+        if item["operation"] in {"increase", "legacy_recharge"}
+        and not item.get("isVoided") and not item.get("isBalanceCorrection")
     ]
     effective_decreases = [
         item
         for item in records
-        if item["operation"] == "decrease" and not item.get("isVoided")
+        if item["operation"] == "decrease"
+        and not item.get("isVoided") and not item.get("isBalanceCorrection")
     ]
     therapist_stats = []
-    for name in THERAPISTS:
+    for name in list_therapist_names(conn if not owns_connection else None, active_only=False):
         therapist_records = [item for item in effective_decreases if item["therapist"] == name]
         therapist_stats.append(
             {
@@ -1079,7 +1498,7 @@ def build_settlement_snapshot(start_date: str, end_date: str) -> dict[str, Any]:
             "massageSessions": sum_number(item["sessions"] for item in effective_decreases),
         },
         "therapistStats": therapist_stats,
-        "debts": list_debtor_patients_at(end_date),
+        "debts": list_debtor_patients_at(end_date, conn),
         "records": records,
     }
 
@@ -1198,44 +1617,41 @@ def create_settlement(payload: dict[str, Any]) -> dict[str, Any]:
     if end_date > dt.date.today().isoformat():
         raise ValueError("结束日期不能晚于今天")
 
-    conn = connect_db()
-    try:
-        latest = latest_active_settlement_row(conn)
-        expected_start = settlement_default_start(latest)
-        if latest and start_date != expected_start:
-            raise ValueError(f"本次起始日期必须是上一份月结结束后的下一天：{expected_start}")
-        overlap = conn.execute(
-            """
-            SELECT id, start_date, end_date
-            FROM settlements
-            WHERE status = 'active'
-              AND NOT (end_date < ? OR start_date > ?)
-            LIMIT 1
-            """,
-            (start_date, end_date),
-        ).fetchone()
-        if overlap:
-            raise ValueError(
-                f"所选日期与月结 #{overlap['id']}（{overlap['start_date']} 至 {overlap['end_date']}）重叠"
-            )
-    finally:
-        conn.close()
-
-    snapshot = build_settlement_snapshot(start_date, end_date)
+    request_id = str(payload.get("requestId") or uuid.uuid4().hex).strip()
+    if payload.get("requestId") is not None:
+        request_id = normalize_request_id(request_id)
     created_at = now_text()
     conn = connect_db()
     try:
         conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT id FROM settlements WHERE request_id = ?", (request_id,)).fetchone()
+        if existing:
+            settlement_id = int(existing["id"])
+            conn.commit()
+            settlement = get_settlement(settlement_id)
+            if not settlement:
+                raise ValueError("月结幂等读取失败")
+            return settlement
         latest = latest_active_settlement_row(conn)
         expected_start = settlement_default_start(latest)
         if latest and start_date != expected_start:
             raise ValueError("月结状态已变化，请刷新页面后重试")
+        overlap = conn.execute(
+            """
+            SELECT id, start_date, end_date FROM settlements
+            WHERE status = 'active' AND NOT (end_date < ? OR start_date > ?) LIMIT 1
+            """,
+            (start_date, end_date),
+        ).fetchone()
+        if overlap:
+            raise ValueError(f"所选日期与月结 #{overlap['id']} 重叠")
+        snapshot = build_settlement_snapshot(start_date, end_date, conn)
         cursor = conn.execute(
             """
-            INSERT INTO settlements (start_date, end_date, status, snapshot_json, created_at)
-            VALUES (?, ?, 'active', ?, ?)
+            INSERT INTO settlements (start_date, end_date, status, snapshot_json, created_at, request_id)
+            VALUES (?, ?, 'active', ?, ?, ?)
             """,
-            (start_date, end_date, json.dumps(snapshot, ensure_ascii=False), created_at),
+            (start_date, end_date, json.dumps(snapshot, ensure_ascii=False), created_at, request_id),
         )
         settlement_id = int(cursor.lastrowid)
         conn.commit()
@@ -1428,6 +1844,9 @@ def create_database_snapshot(snapshot_path: Path) -> None:
     snapshot_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(DB_PATH) as source, sqlite3.connect(snapshot_path) as target:
         source.backup(target)
+        result = target.execute("PRAGMA integrity_check").fetchone()[0]
+        if result != "ok":
+            raise RuntimeError(f"数据库快照完整性检查失败：{result}")
 
 
 def derive_backup_key(password: str, salt: bytes) -> bytes:
@@ -1443,9 +1862,10 @@ def encrypt_backup_file(source_path: Path, encrypted_path: Path, password: str) 
     encrypted_path.write_bytes(BACKUP_MAGIC + salt + encrypted)
 
 
-def backup_filename(now: dt.datetime, app_name: str) -> str:
+def backup_filename(now: dt.datetime, app_name: str, full_baseline: bool = False) -> str:
     safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", app_name).strip("_") or "tuina"
-    return f"{safe_name}_backup_{now.strftime('%Y-%m-%d_%H%M%S')}.zip.enc"
+    suffix = "_full" if full_baseline else ""
+    return f"{safe_name}_backup_{now.strftime('%Y-%m-%d_%H%M%S')}{suffix}.zip.enc"
 
 
 def signature_backup_record(path: Path) -> dict[str, Any]:
@@ -1464,7 +1884,7 @@ def backup_archive_name(path: Path) -> str:
         return path.name
 
 
-def collect_incremental_signature_paths(state: dict[str, Any]) -> list[Path]:
+def collect_incremental_signature_paths(state: dict[str, Any], force_full: bool = False) -> list[Path]:
     uploaded = state.get("uploadedSignatureFiles")
     if not isinstance(uploaded, dict):
         uploaded = {}
@@ -1475,9 +1895,23 @@ def collect_incremental_signature_paths(state: dict[str, Any]) -> list[Path]:
         if not path.is_file():
             continue
         rel = backup_archive_name(path)
-        if uploaded.get(rel) != signature_backup_record(path):
+        if force_full or uploaded.get(rel) != signature_backup_record(path):
             paths.append(path)
     return paths
+
+
+def full_signature_baseline_due(state: dict[str, Any], now: dt.datetime | None = None) -> bool:
+    last_text = str(state.get("lastFullSignatureBaselineAt") or "").strip()
+    if not last_text:
+        return True
+    try:
+        last = dt.datetime.fromisoformat(last_text)
+    except ValueError:
+        return True
+    current = now or backup_now()
+    if last.tzinfo is None and current.tzinfo is not None:
+        last = last.replace(tzinfo=current.tzinfo)
+    return current - last >= dt.timedelta(days=BACKUP_FULL_BASELINE_DAYS)
 
 
 def add_file_to_zip(package: zipfile.ZipFile, path: Path, arcname: str) -> None:
@@ -1485,17 +1919,29 @@ def add_file_to_zip(package: zipfile.ZipFile, path: Path, arcname: str) -> None:
         package.write(path, arcname)
 
 
-def create_backup_zip(zip_path: Path, state: dict[str, Any]) -> tuple[list[Path], dict[str, Any]]:
+def create_backup_zip(
+    zip_path: Path,
+    state: dict[str, Any],
+    full_baseline: bool | None = None,
+) -> tuple[list[Path], dict[str, Any]]:
     BACKUP_TEMP_DIR.mkdir(parents=True, exist_ok=True)
     snapshot_path = BACKUP_TEMP_DIR / "tuina_records_snapshot.sqlite3"
     create_database_snapshot(snapshot_path)
-    signature_paths = collect_incremental_signature_paths(state)
+    if full_baseline is None:
+        full_baseline = full_signature_baseline_due(state)
+    signature_paths = collect_incremental_signature_paths(state, force_full=full_baseline)
     uploaded = dict(state.get("uploadedSignatureFiles") or {})
     manifest = {
         "generatedAt": backup_iso(),
         "database": "data/tuina_records.sqlite3",
         "includedSignatureCount": len(signature_paths),
         "includedSignatures": [backup_archive_name(path) for path in signature_paths],
+        "includedSignatureSha256": {
+            backup_archive_name(path): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in signature_paths
+        },
+        "signatureMode": "full" if full_baseline else "incremental",
+        "databaseSha256": hashlib.sha256(snapshot_path.read_bytes()).hexdigest(),
     }
 
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as package:
@@ -1513,7 +1959,47 @@ def create_backup_zip(zip_path: Path, state: dict[str, Any]) -> tuple[list[Path]
 
     updated_state = dict(state)
     updated_state["uploadedSignatureFiles"] = uploaded
+    if full_baseline:
+        updated_state["lastFullSignatureBaselineAt"] = backup_iso()
     return signature_paths, updated_state
+
+
+def verify_backup_restore_chain(zip_paths: list[Path], restore_dir: Path) -> dict[str, Any]:
+    packages: list[tuple[dict[str, Any], Path]] = []
+    for path in zip_paths:
+        with zipfile.ZipFile(path) as package:
+            manifest = json.loads(package.read("backup_manifest.json"))
+        packages.append((manifest, path))
+    packages.sort(key=lambda item: str(item[0].get("generatedAt") or ""))
+    full_indexes = [index for index, (manifest, _) in enumerate(packages) if manifest.get("signatureMode") == "full"]
+    if not full_indexes:
+        raise ValueError("恢复链缺少全量签名基线")
+    restore_dir.mkdir(parents=True, exist_ok=True)
+    applied = packages[full_indexes[-1] :]
+    for manifest, path in applied:
+        with zipfile.ZipFile(path) as package:
+            for member in package.infolist():
+                target = (restore_dir / member.filename).resolve()
+                root = restore_dir.resolve()
+                if target != root and root not in target.parents:
+                    raise ValueError("备份包包含越界路径")
+            package.extractall(restore_dir)
+        for name, expected_hash in (manifest.get("includedSignatureSha256") or {}).items():
+            restored = restore_dir / name
+            if not restored.exists() or hashlib.sha256(restored.read_bytes()).hexdigest() != expected_hash:
+                raise ValueError(f"签名恢复校验失败：{name}")
+    database_path = restore_dir / "data" / "tuina_records.sqlite3"
+    if not database_path.exists():
+        raise ValueError("恢复结果缺少数据库")
+    with sqlite3.connect(database_path) as conn:
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+    if integrity != "ok":
+        raise ValueError(f"恢复数据库完整性检查失败：{integrity}")
+    return {
+        "integrity": integrity,
+        "appliedPackageCount": len(applied),
+        "restoredSignatureCount": len(list(restore_dir.rglob("*.png"))),
+    }
 
 
 def upload_backup_file(config: dict[str, str], encrypted_path: Path, remote_name: str) -> None:
@@ -1551,7 +2037,7 @@ def webdav_backup_names(config: dict[str, str]) -> list[str]:
 
 
 def backup_datetime_from_name(name: str) -> dt.datetime | None:
-    match = re.search(r"_backup_(\d{4}-\d{2}-\d{2}_\d{6})\.zip\.enc$", name)
+    match = re.search(r"_backup_(\d{4}-\d{2}-\d{2}_\d{6})(?:_full)?\.zip\.enc$", name)
     if not match:
         return None
     try:
@@ -1568,10 +2054,11 @@ def cleanup_remote_backups(config: dict[str, str]) -> None:
             backups.append((name, backup_time))
     cutoff = backup_now() - dt.timedelta(days=BACKUP_RETENTION_DAYS)
     backups.sort(key=lambda item: item[1], reverse=True)
+    newest_full = next((name for name, _ in backups if name.endswith("_full.zip.enc")), "")
     names_to_delete = {
         name
         for index, (name, backup_time) in enumerate(backups)
-        if backup_time < cutoff or index >= BACKUP_RETENTION_DAYS
+        if name != newest_full and (backup_time < cutoff or index >= BACKUP_RETENTION_DAYS)
     }
     for name in sorted(names_to_delete):
         remote_url = urllib.parse.urljoin(config["url"], urllib.parse.quote(name))
@@ -1589,12 +2076,13 @@ def perform_cloud_backup(force: bool = False) -> dict[str, Any]:
             return saved_state
 
         now = backup_now()
-        remote_name = backup_filename(now, config["appFolder"])
+        full_baseline = full_signature_baseline_due(saved_state, now)
+        remote_name = backup_filename(now, config["appFolder"], full_baseline)
         zip_path = BACKUP_TEMP_DIR / remote_name.replace(".zip.enc", ".zip")
         encrypted_path = BACKUP_TEMP_DIR / remote_name
         BACKUP_TEMP_DIR.mkdir(parents=True, exist_ok=True)
         try:
-            signature_paths, updated_state = create_backup_zip(zip_path, saved_state)
+            signature_paths, updated_state = create_backup_zip(zip_path, saved_state, full_baseline)
             encrypt_backup_file(zip_path, encrypted_path, config["encryptionPassword"])
             ensure_webdav_collection(config)
             upload_backup_file(config, encrypted_path, remote_name)
@@ -1609,6 +2097,7 @@ def perform_cloud_backup(force: bool = False) -> dict[str, Any]:
                 "lastSuccessAt": backup_iso(now),
                 "lastRemoteName": remote_name,
                 "lastIncludedSignatures": len(signature_paths),
+                "lastSignatureMode": "full" if full_baseline else "incremental",
                 "lastPackageBytes": encrypted_path.stat().st_size,
             }
             write_backup_state(result)
@@ -1769,6 +2258,7 @@ def get_session_page(patient_id: int) -> dict[str, Any]:
         "signature": get_signature_item(patient_id),
         "visitSignatures": get_visit_signature_history(patient_id),
         "adjustments": list_session_adjustments(patient_id),
+        "therapists": list_therapist_names(),
     }
 
 
@@ -1780,20 +2270,40 @@ def apply_session_adjustment(patient_id: int, payload: dict[str, Any]) -> dict[s
     if sessions is None or sessions <= 0:
         raise ValueError("sessions must be a positive integer")
     therapist = str(payload.get("therapist") or "").strip() if operation == "decrease" else ""
-    if operation == "decrease" and therapist not in THERAPISTS:
+    if operation == "decrease" and therapist not in list_therapist_names():
         raise ValueError("请选择师傅")
-    amount = optional_float(payload.get("amount")) if operation == "increase" else None
+    amount_cents = optional_amount_cents(payload.get("amount")) if operation == "increase" else None
     if operation == "increase":
-        if amount is None:
-            amount = float(sessions * DEFAULT_SESSION_PRICE)
-        if amount < 0:
+        if amount_cents is None:
+            amount_cents = sessions * DEFAULT_SESSION_PRICE * 100
+        if amount_cents < 0:
             raise ValueError("充值金额不能小于 0")
+    amount = (amount_cents / 100) if amount_cents is not None else None
 
     occurred_at = str(payload.get("occurredAt") or "").strip() or now_text()
     note = str(payload.get("note") or "").strip()
     created_at = now_text()
+    request_id = str(payload.get("requestId") or uuid.uuid4().hex).strip()
+    if payload.get("requestId") is not None:
+        request_id = normalize_request_id(request_id)
 
-    with connect_db() as conn:
+    conn = connect_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT id, patient_id FROM session_adjustments WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+        if existing:
+            if int(existing["patient_id"]) != patient_id:
+                raise ValueError("requestId 已用于其他患者")
+            adjustment_id = int(existing["id"])
+            conn.commit()
+            return {
+                "adjustment": get_session_adjustment(adjustment_id),
+                "patient": get_patient(patient_id),
+                "adjustments": list_session_adjustments(patient_id),
+            }
         locked_settlement = active_settlement_for_date(conn, occurred_at[:10])
         if locked_settlement:
             raise ValueError(
@@ -1824,27 +2334,32 @@ def apply_session_adjustment(patient_id: int, payload: dict[str, Any]) -> dict[s
         cursor = conn.execute(
             """
             INSERT INTO session_adjustments (
-                patient_id, operation, sessions, amount, therapist, before_sessions, after_sessions, signature_status,
-                occurred_at, note, created_at
+                patient_id, operation, sessions, amount, amount_cents, therapist, before_sessions, after_sessions, signature_status,
+                entry_kind, request_id, occurred_at, note, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'normal', ?, ?, ?, ?)
             """,
             (
                 patient_id,
                 operation,
                 sessions,
                 amount,
+                amount_cents,
                 therapist,
                 before_sessions,
                 after_sessions,
                 "pending",
+                request_id,
                 occurred_at,
                 note,
                 created_at,
             ),
         )
+        verify_balance_invariants(conn)
         conn.commit()
         adjustment_id = int(cursor.lastrowid)
+    finally:
+        conn.close()
 
     return {
         "adjustment": {
@@ -1879,7 +2394,26 @@ def reverse_session_adjustment(adjustment_id: int, payload: dict[str, Any]) -> d
         raise ValueError("选择其他时请填写说明")
 
     corrected_at = now_text()
-    with connect_db() as conn:
+    request_id = str(payload.get("requestId") or uuid.uuid4().hex).strip()
+    if payload.get("requestId") is not None:
+        request_id = normalize_request_id(request_id)
+    conn = connect_db()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        duplicate = conn.execute(
+            "SELECT id, patient_id FROM session_adjustments WHERE reversal_request_id = ?",
+            (request_id,),
+        ).fetchone()
+        if duplicate:
+            if int(duplicate["id"]) != adjustment_id:
+                raise ValueError("requestId 已用于其他冲正")
+            patient_id = int(duplicate["patient_id"])
+            conn.commit()
+            return {
+                "patient": get_patient(patient_id),
+                "reason": "该冲正请求已处理",
+                "original": get_session_adjustment(adjustment_id),
+            }
         original = conn.execute(
             """
             SELECT a.*, p.remaining_sessions
@@ -1915,17 +2449,20 @@ def reverse_session_adjustment(adjustment_id: int, payload: dict[str, Any]) -> d
             after_sessions = before_sessions + original_sessions
 
         reason_text = reason if reason != "其他" else f"其他：{note_detail}"
-        conn.execute(
+        cursor = conn.execute(
             """
             UPDATE session_adjustments
             SET voided_at = ?,
                 voided_by_adjustment_id = NULL,
                 correction_reason = ?,
-                correction_note = ?
-            WHERE id = ?
+                correction_note = ?,
+                reversal_request_id = ?
+            WHERE id = ? AND voided_at IS NULL
             """,
-            (corrected_at, reason, note_detail, adjustment_id),
+            (corrected_at, reason, note_detail, request_id, adjustment_id),
         )
+        if cursor.rowcount != 1:
+            raise ValueError("这条流水已经被冲正")
         conn.execute(
             """
             UPDATE patients
@@ -1934,7 +2471,10 @@ def reverse_session_adjustment(adjustment_id: int, payload: dict[str, Any]) -> d
             """,
             (after_sessions, corrected_at, patient_id),
         )
+        verify_balance_invariants(conn)
         conn.commit()
+    finally:
+        conn.close()
 
     return {
         "patient": get_patient(patient_id),
@@ -1967,6 +2507,10 @@ def optional_float(value: Any) -> float | None:
         return float(str(value).strip())
     except ValueError as exc:
         raise ValueError(f"invalid number: {value}") from exc
+
+
+def optional_amount_cents(value: Any) -> int | None:
+    return ledger_safety.optional_amount_cents(value)
 
 
 def export_csv() -> bytes:
@@ -2489,6 +3033,26 @@ def save_signature_bindings(bindings: dict[str, Any]) -> None:
     temp_path.replace(SIGNATURE_BINDINGS_PATH)
 
 
+def signature_storage_snapshot() -> tuple[bytes | None, set[Path]]:
+    bindings_bytes = SIGNATURE_BINDINGS_PATH.read_bytes() if SIGNATURE_BINDINGS_PATH.exists() else None
+    files = set(ELECTRONIC_SIGNATURE_DIR.rglob("*.png")) if ELECTRONIC_SIGNATURE_DIR.exists() else set()
+    return bindings_bytes, files
+
+
+def restore_signature_storage(snapshot: tuple[bytes | None, set[Path]]) -> None:
+    bindings_bytes, previous_files = snapshot
+    current_files = set(ELECTRONIC_SIGNATURE_DIR.rglob("*.png")) if ELECTRONIC_SIGNATURE_DIR.exists() else set()
+    for path in current_files - previous_files:
+        path.unlink(missing_ok=True)
+    if bindings_bytes is None:
+        SIGNATURE_BINDINGS_PATH.unlink(missing_ok=True)
+    else:
+        SIGNATURE_BINDINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = SIGNATURE_BINDINGS_PATH.with_suffix(".restore.tmp")
+        temp_path.write_bytes(bindings_bytes)
+        temp_path.replace(SIGNATURE_BINDINGS_PATH)
+
+
 def apply_signature_bindings(manifest: dict[str, Any]) -> dict[str, Any]:
     try:
         bindings = load_signature_bindings()
@@ -2547,6 +3111,16 @@ def decode_signature_png(payload: dict[str, Any]) -> bytes:
 
 
 def save_electronic_signature(payload: dict[str, Any]) -> dict[str, Any]:
+    with SIGNATURE_WRITE_LOCK:
+        snapshot = signature_storage_snapshot()
+        try:
+            return _save_electronic_signature_unlocked(payload)
+        except Exception:
+            restore_signature_storage(snapshot)
+            raise
+
+
+def _save_electronic_signature_unlocked(payload: dict[str, Any]) -> dict[str, Any]:
     patient_id = int(payload.get("patientId") or 0)
     patient = get_patient(patient_id)
     if not patient:
@@ -2557,6 +3131,32 @@ def save_electronic_signature(payload: dict[str, Any]) -> dict[str, Any]:
     if not field:
         raise ValueError("signature kind must be directory, case, visit, or flow")
     adjustment_id = optional_int(payload.get("adjustmentId"))
+    request_id = str(payload.get("requestId") or uuid.uuid4().hex).strip()
+    if payload.get("requestId") is not None:
+        request_id = normalize_request_id(request_id)
+
+    bindings = load_signature_bindings()
+    patient_binding = (bindings.get("patients") or {}).get(str(patient_id)) or {}
+    for entry in patient_binding.get("history") or []:
+        if isinstance(entry, dict) and entry.get("requestId") == request_id:
+            return {
+                "patientId": patient_id,
+                "kind": entry.get("kind") or kind,
+                "field": entry.get("field") or field,
+                "url": entry.get("url") or "",
+                "filePath": "",
+                "savedAt": entry.get("savedAt") or "",
+                "adjustmentId": entry.get("adjustmentId") or "",
+            }
+
+    if adjustment_id:
+        with connect_db() as conn:
+            row = conn.execute(
+                "SELECT id, signature_status, voided_at FROM session_adjustments WHERE id = ? AND patient_id = ?",
+                (adjustment_id, patient_id),
+            ).fetchone()
+            if not row or row["voided_at"]:
+                raise ValueError("没有找到可签名的流水")
 
     image_bytes = decode_signature_png(payload)
     saved_at = now_text()
@@ -2568,7 +3168,6 @@ def save_electronic_signature(payload: dict[str, Any]) -> dict[str, Any]:
     target_path.write_bytes(image_bytes)
     url = signature_public_url(target_path)
 
-    bindings = load_signature_bindings()
     bindings["updatedAt"] = saved_at
     bound_patients = bindings.setdefault("patients", {})
     patient_binding = bound_patients.setdefault(str(patient_id), {})
@@ -2588,6 +3187,7 @@ def save_electronic_signature(payload: dict[str, Any]) -> dict[str, Any]:
             "signerName": str(payload.get("signerName") or "").strip(),
             "note": str(payload.get("note") or "").strip(),
             "savedAt": saved_at,
+            "requestId": request_id,
         }
     )
     del history[:-50]
@@ -2660,7 +3260,7 @@ def list_pending_signature_adjustments(query: dict[str, list[str]]) -> dict[str,
     prefix_length = len(date_prefix)
     patient_id = optional_int(first_query_value(query, "patientId"))
     therapist = first_query_value(query, "therapist")
-    if therapist and therapist not in THERAPISTS:
+    if therapist and therapist not in list_therapist_names(active_only=False):
         raise ValueError("师傅筛选无效")
 
     clauses = [
@@ -2710,6 +3310,16 @@ def list_pending_signature_adjustments(query: dict[str, list[str]]) -> dict[str,
 
 
 def save_bulk_flow_signature(payload: dict[str, Any]) -> dict[str, Any]:
+    with SIGNATURE_WRITE_LOCK:
+        snapshot = signature_storage_snapshot()
+        try:
+            return _save_bulk_flow_signature_unlocked(payload)
+        except Exception:
+            restore_signature_storage(snapshot)
+            raise
+
+
+def _save_bulk_flow_signature_unlocked(payload: dict[str, Any]) -> dict[str, Any]:
     raw_ids = payload.get("adjustmentIds")
     if not isinstance(raw_ids, list):
         raise ValueError("请选择要补签的流水")
@@ -2718,6 +3328,25 @@ def save_bulk_flow_signature(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("请选择要补签的流水")
     if len(adjustment_ids) > 100:
         raise ValueError("一次批量补签最多选择 100 条流水")
+    request_id = str(payload.get("requestId") or uuid.uuid4().hex).strip()
+    if payload.get("requestId") is not None:
+        request_id = normalize_request_id(request_id)
+    with connect_db() as duplicate_conn:
+        existing = duplicate_conn.execute(
+            "SELECT id, signature_url, signer, note, adjustment_count, signed_at FROM signature_batches WHERE request_id = ?",
+            (request_id,),
+        ).fetchone()
+    if existing:
+        return {
+            "batch": {
+                "id": int(existing["id"]),
+                "url": existing["signature_url"],
+                "signerName": existing["signer"] or "",
+                "note": existing["note"] or "",
+                "savedAt": existing["signed_at"],
+                "adjustmentCount": int(existing["adjustment_count"]),
+            }
+        }
 
     image_bytes = decode_signature_png(payload)
     signer_name = str(payload.get("signerName") or "").strip()
@@ -2753,10 +3382,10 @@ def save_bulk_flow_signature(payload: dict[str, Any]) -> dict[str, Any]:
 
         cursor = conn.execute(
             """
-            INSERT INTO signature_batches (signature_url, signer, note, adjustment_count, signed_at, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO signature_batches (signature_url, signer, note, adjustment_count, request_id, signed_at, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (url, signer_name, note, len(rows), saved_at, saved_at),
+            (url, signer_name, note, len(rows), request_id, saved_at, saved_at),
         )
         batch_id = int(cursor.lastrowid)
         conn.execute(
@@ -2935,6 +3564,10 @@ class TuinaHandler(SimpleHTTPRequestHandler):
             init_database()
             json_response(self, HTTPStatus.OK, {"ok": True, "patients": list_patients()})
             return
+        if parsed_path.path == "/api/therapists":
+            init_database()
+            json_response(self, HTTPStatus.OK, {"ok": True, "therapists": list_therapist_names()})
+            return
         if parsed_path.path == "/api/session-summary":
             init_database()
             try:
@@ -3011,6 +3644,27 @@ class TuinaHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed_path = urllib.parse.urlparse(self.path)
+        patient_action = re.fullmatch(
+            r"/api/patients/(\d+)/(opening-balance-correction|confirm-balance|balance-correction)",
+            parsed_path.path,
+        )
+        if patient_action:
+            try:
+                init_database()
+                patient_id = int(patient_action.group(1))
+                action = patient_action.group(2)
+                request_json = read_json_body(self)
+                if action == "opening-balance-correction":
+                    result = correct_opening_balance(patient_id, request_json)
+                elif action == "confirm-balance":
+                    result = confirm_patient_balance(patient_id, request_json)
+                else:
+                    result = correct_active_balance(patient_id, request_json)
+                json_response(self, HTTPStatus.OK, {"ok": True, **result})
+            except Exception as exc:
+                json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            return
+
         if parsed_path.path == "/api/settlements":
             try:
                 init_database()
@@ -3158,12 +3812,13 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
 
 
-def run_server(host: str, port: int) -> None:
+def run_server(host: str, port: int, start_backup: bool = True) -> None:
     load_dotenv()
     load_tencent_key_file()
     load_backup_key_file()
     init_database()
-    start_cloud_backup_worker()
+    if start_backup:
+        start_cloud_backup_worker()
     with ThreadedTCPServer((host, port), TuinaHandler) as server:
         print(f"Tuina input system: http://{host}:{port}", flush=True)
         print(f"Database: {DB_PATH}", flush=True)
@@ -3175,8 +3830,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Local Tuina patient input system.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8776)
+    parser.add_argument("--no-backup", action="store_true", help="启动本地检查服务时不运行云备份")
     args = parser.parse_args()
-    run_server(args.host, args.port)
+    run_server(args.host, args.port, start_backup=not args.no_backup)
 
 
 if __name__ == "__main__":

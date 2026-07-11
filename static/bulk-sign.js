@@ -20,6 +20,7 @@ let patients = [];
 let records = [];
 let selectedIds = new Set();
 let autoLoadTimer = 0;
+let loadSequence = 0;
 let context = null;
 let pixelRatio = 1;
 let drawing = false;
@@ -34,7 +35,16 @@ async function init() {
   bindEvents();
   resizeCanvas();
   await loadPatients();
+  await loadTherapists();
   await loadRecords();
+}
+
+async function loadTherapists() {
+  const response = await fetch("/api/therapists", { cache: "no-store" });
+  const payload = await response.json();
+  if (!payload.ok) throw new Error(payload.error || "读取师傅失败");
+  elements.therapistSelect.innerHTML = '<option value="">全部师傅</option>';
+  for (const name of payload.therapists || []) elements.therapistSelect.add(new Option(name, name));
 }
 
 function bindEvents() {
@@ -73,6 +83,7 @@ async function loadPatients() {
 
 async function loadRecords() {
   window.clearTimeout(autoLoadTimer);
+  const sequence = ++loadSequence;
   const params = new URLSearchParams({
     range: elements.rangeSelect.value,
     date: elements.dateInput.value,
@@ -83,6 +94,7 @@ async function loadRecords() {
   try {
     const response = await fetch(`/api/pending-signatures?${params.toString()}`, { cache: "no-store" });
     const payload = await response.json();
+    if (sequence !== loadSequence) return;
     if (!payload.ok) throw new Error(payload.error || "读取待补签流水失败");
     records = payload.records || [];
     selectedIds = new Set([...selectedIds].filter((id) => records.some((item) => Number(item.id) === id)));
@@ -90,6 +102,7 @@ async function loadRecords() {
     updateSelectionSummary();
     setStatus(`共 ${records.length} 条待补签流水`, "success");
   } catch (error) {
+    if (sequence !== loadSequence) return;
     setStatus(error.message || String(error), "error");
   }
 }
@@ -175,6 +188,13 @@ async function saveBulkSignature() {
   if (!confirmed) return;
   elements.saveButton.disabled = true;
   setStatus("正在保存批量补签");
+  const selectedKey = [...selectedIds].sort((a, b) => a - b).join(",");
+  const requestKey = `tuina:bulk-sign:${selectedKey}`;
+  let requestId = sessionStorage.getItem(requestKey);
+  if (!requestId) {
+    requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    sessionStorage.setItem(requestKey, requestId);
+  }
   try {
     const response = await fetch("/api/bulk-signatures", {
       method: "POST",
@@ -183,11 +203,13 @@ async function saveBulkSignature() {
         adjustmentIds: [...selectedIds],
         signerName: elements.signerNameInput.value.trim(),
         note: elements.signatureNoteInput.value.trim(),
+        requestId,
         imageData: elements.signatureCanvas.toDataURL("image/png"),
       }),
     });
     const payload = await response.json();
     if (!payload.ok) throw new Error(payload.error || "批量补签失败");
+    sessionStorage.removeItem(requestKey);
     selectedIds.clear();
     clearCanvas();
     await loadRecords();
