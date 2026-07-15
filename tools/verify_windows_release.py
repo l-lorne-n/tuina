@@ -53,6 +53,15 @@ def main() -> None:
         forbidden = [name for name in names if "/.git/" in name or "__pycache__" in name]
         if forbidden:
             raise SystemExit(f"forbidden development files in zip: {forbidden[:5]}")
+        database_sidecars = [name for name in names if name.endswith((".sqlite3-wal", ".sqlite3-shm"))]
+        if database_sidecars:
+            raise SystemExit(f"SQLite sidecar files must not be shipped: {database_sidecars}")
+        launcher = package.read("启动推拿系统.bat").decode("utf-8-sig")
+        tools_nav = package.read("TuinaPatientManager/_internal/static/tools-nav.js").decode("utf-8")
+        if "http://127.0.0.1:8781/patient-search.html" not in launcher or "--port 8781" not in launcher:
+            raise SystemExit("launcher does not open the requested patient-search URL on port 8781")
+        if '"/index.html"' not in tools_nav:
+            raise SystemExit("packaged toolbar does not link back to the entry page")
 
     source_doc_count = len(
         [

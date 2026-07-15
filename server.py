@@ -3505,9 +3505,7 @@ def list_test_signatures(limit: int = 20) -> list[dict[str, Any]]:
 class TuinaHandler(SimpleHTTPRequestHandler):
     def translate_path(self, path: str) -> str:
         clean_path = urllib.parse.urlparse(path).path
-        if clean_path == "/":
-            return str(STATIC_DIR / "patient-search.html")
-        if clean_path == "/index.html":
+        if clean_path in ("/", "/index.html"):
             return str(STATIC_DIR / "index.html")
         if clean_path in ("/patient-search", "/patient-search.html"):
             return str(STATIC_DIR / "patient-search.html")

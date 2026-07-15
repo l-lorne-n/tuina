@@ -4,7 +4,10 @@
   const patientId = params.get("patientId") || "";
   const returnTo = `${window.location.pathname}${window.location.search}`;
 
-  const entryHref = page === "patient-sessions" && patientId ? `/?patientId=${encodeURIComponent(patientId)}` : "/";
+  const entryHref =
+    page === "patient-sessions" && patientId
+      ? `/index.html?patientId=${encodeURIComponent(patientId)}`
+      : "/index.html";
   const signatureHref =
     page === "patient-sessions" && patientId
       ? `/signature-pad.html?patientId=${encodeURIComponent(patientId)}&kind=visit&returnTo=${encodeURIComponent(

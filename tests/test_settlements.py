@@ -162,6 +162,23 @@ class SettlementApiTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=3) as response:
             return json.loads(response.read().decode("utf-8"))
 
+    def request_text(self, path: str) -> str:
+        with urllib.request.urlopen(f"{self.base_url}{path}", timeout=3) as response:
+            return response.read().decode("utf-8")
+
+    def test_root_is_entry_page_and_patient_search_keeps_its_own_route(self) -> None:
+        root_html = self.request_text("/")
+        entry_html = self.request_text("/index.html")
+        search_html = self.request_text("/patient-search.html")
+        tools_js = self.request_text("/tools-nav.js")
+
+        self.assertIn("<title>推拿卡片录入</title>", root_html)
+        self.assertEqual(root_html, entry_html)
+        self.assertIn("<title>患者查找</title>", search_html)
+        self.assertNotEqual(root_html, search_html)
+        self.assertIn('href: entryHref', tools_js)
+        self.assertIn(': "/index.html"', tools_js)
+
     def test_create_read_list_and_revoke_routes(self) -> None:
         created = self.request_json(
             "/api/settlements",

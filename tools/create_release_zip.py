@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import zipfile
+from contextlib import closing
 from pathlib import Path
 
 
@@ -12,6 +14,18 @@ LAUNCHER = APP_ROOT / "启动推拿系统.bat"
 INSTRUCTIONS = APP_ROOT / "使用说明.txt"
 ZIP_PATH = APP_ROOT / "tuina_windows_with_data_2026-07-11.zip"
 TEMP_ZIP_PATH = ZIP_PATH.with_suffix(".zip.tmp")
+RELEASE_DB = RELEASE_DIR / "data" / "tuina_records.sqlite3"
+
+
+def checkpoint_release_database() -> None:
+    if not RELEASE_DB.exists():
+        raise SystemExit(f"missing release database: {RELEASE_DB}")
+    with closing(sqlite3.connect(RELEASE_DB, timeout=30)) as conn:
+        busy, _, _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+        if busy:
+            raise SystemExit("release database is still in use; stop the packaged app before creating the ZIP")
+    for suffix in ("-wal", "-shm"):
+        RELEASE_DB.with_name(RELEASE_DB.name + suffix).unlink(missing_ok=True)
 
 
 def files_to_archive() -> list[tuple[Path, str]]:
@@ -29,6 +43,7 @@ def main() -> None:
     for required in (RELEASE_DIR, LAUNCHER, INSTRUCTIONS):
         if not required.exists():
             raise SystemExit(f"missing release input: {required}")
+    checkpoint_release_database()
     TEMP_ZIP_PATH.unlink(missing_ok=True)
     items = files_to_archive()
     try:
